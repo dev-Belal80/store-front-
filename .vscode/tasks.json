@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-check",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"react-scripts",
+				"build"
+			],
+			"isBackground": false
+		}
+	]
+}

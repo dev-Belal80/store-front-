@@ -1,0 +1,86 @@
+import { useMemo, useState } from 'react';
+import {
+  BadgePercent,
+  Banknote,
+  FileSpreadsheet,
+  HandCoins,
+  Home,
+  Package,
+  ShoppingCart,
+  Truck,
+  Users,
+} from 'lucide-react';
+import { Outlet, useLocation } from 'react-router-dom';
+import Sidebar from '../components/shared/Sidebar';
+import Topbar from '../components/shared/Topbar';
+
+const pageTitles = {
+  '/store/dashboard': 'الرئيسية',
+  '/store/customers': 'العملاء',
+  '/store/suppliers': 'الموردون',
+  '/store/products': 'المنتجات',
+  '/store/categories': 'التصنيفات',
+  '/store/sales-invoices': 'فواتير البيع',
+  '/store/purchase-invoices': 'فواتير الشراء',
+  '/store/payments': 'المدفوعات',
+  '/store/cash': 'الصندوق',
+};
+
+const getPageTitle = (pathname) => {
+  if (pathname.startsWith('/store/customers/') && pathname.endsWith('/statement')) {
+    return 'كشف حساب عميل';
+  }
+
+  if (pathname.startsWith('/store/suppliers/') && pathname.endsWith('/statement')) {
+    return 'كشف حساب مورد';
+  }
+
+  if (pathname === '/store/purchase-invoices/create') {
+    return 'إضافة فاتورة شراء';
+  }
+
+  if (pathname === '/store/sales-invoices/create') {
+    return 'إنشاء فاتورة بيع';
+  }
+
+  if (pathname.startsWith('/store/purchase-invoices/')) {
+    return 'تفاصيل فاتورة شراء';
+  }
+
+  return pageTitles[pathname] || 'لوحة المتجر';
+};
+
+export default function StoreLayout() {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const location = useLocation();
+
+  const items = useMemo(
+    () => [
+      { label: 'الرئيسية', icon: Home, path: '/store/dashboard' },
+      { label: 'العملاء', icon: Users, path: '/store/customers' },
+      { label: 'الموردون', icon: Truck, path: '/store/suppliers' },
+      { label: 'المنتجات', icon: Package, path: '/store/products' },
+      { label: 'التصنيفات', icon: BadgePercent, path: '/store/categories' },
+      { label: 'فواتير البيع', icon: FileSpreadsheet, path: '/store/sales-invoices' },
+      { label: 'فواتير الشراء', icon: ShoppingCart, path: '/store/purchase-invoices' },
+      { label: 'المدفوعات', icon: HandCoins, path: '/store/payments' },
+      { label: 'الصندوق', icon: Banknote, path: '/store/cash' },
+    ],
+    []
+  );
+
+  const title = getPageTitle(location.pathname);
+
+  return (
+    <div className="min-h-screen bg-bg lg:flex">
+      <Sidebar items={items} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+
+      <div className="flex min-h-screen flex-1 flex-col">
+        <Topbar title={title} onMenuClick={() => setIsSidebarOpen(true)} />
+        <main className="flex-1 p-4 lg:p-6">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
