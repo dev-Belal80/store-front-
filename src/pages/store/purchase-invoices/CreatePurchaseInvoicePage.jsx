@@ -6,13 +6,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Plus, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { searchVariants } from '../../../api/products';
+import { getCategories } from '../../../api/categories';
+import { addVariant, createProduct, searchVariants } from '../../../api/products';
 import { createPurchaseInvoice } from '../../../api/purchaseInvoices';
 import { getSuppliers } from '../../../api/suppliers';
 import LoadingSpinner from '../../../components/shared/LoadingSpinner';
 import PageHeader from '../../../components/shared/PageHeader';
 import SearchableSelect from '../../../components/shared/SearchableSelect';
 import { Button } from '../../../components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../../components/ui/dialog';
 import { Input } from '../../../components/ui/input';
 import { formatCurrency } from '../../../utils/formatters';
 
@@ -48,6 +57,16 @@ const purchaseInvoiceSchema = z.object({
   items: z.array(itemSchema).min(1, 'أضف منتجًا واحدًا على الأقل'),
 });
 
+const createProductWithVariantSchema = z.object({
+  category_id: z.coerce.number().min(1, 'التصنيف مطلوب'),
+  product_name: z.string().min(1, 'اسم المنتج مطلوب'),
+  variant_name: z.string().min(1, 'اسم الحجم مطلوب'),
+  purchase_price: z.coerce.number().min(0, 'سعر الشراء غير صحيح'),
+  sale_price: z.coerce.number().min(0, 'سعر البيع غير صحيح'),
+  sku: z.string().optional(),
+  low_stock_threshold: z.coerce.number().min(0, 'حد التنبيه غير صحيح').default(0),
+});
+
 const defaultItem = {
   variant_id: 0,
   ordered_quantity: 1,
@@ -62,10 +81,33 @@ const extractItems = (response) => {
   return [];
 };
 
+const extractCategories = (response) => {
+  const payload = response?.data?.data ?? response?.data ?? [];
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload)) return payload;
+  return [];
+};
+
+const extractCreatedProduct = (response) => {
+  const payload = response?.data?.data ?? response?.data ?? {};
+  if (payload?.product?.id) return payload.product;
+  return payload;
+};
+
+const extractCreatedVariant = (response) => {
+  const payload = response?.data?.data ?? response?.data ?? {};
+  if (payload?.variant?.id) return payload.variant;
+  if (payload?.data?.variant?.id) return payload.data.variant;
+  if (payload?.id) return payload;
+  return null;
+};
+
 export default function CreatePurchaseInvoicePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedVariants, setSelectedVariants] = useState({});
+  const [showCreateProductModal, setShowCreateProductModal] = useState(false);
+  const [createProductRowIndex, setCreateProductRowIndex] = useState(null);
 
   const {
     register,
@@ -83,6 +125,24 @@ export default function CreatePurchaseInvoicePage() {
     },
   });
 
+  const {
+    register: registerCreateProduct,
+    handleSubmit: handleSubmitCreateProduct,
+    reset: resetCreateProduct,
+    formState: { errors: createProductErrors },
+  } = useForm({
+    resolver: zodResolver(createProductWithVariantSchema),
+    defaultValues: {
+      category_id: 0,
+      product_name: '',
+      variant_name: '',
+      purchase_price: 0,
+      sale_price: 0,
+      sku: '',
+      low_stock_threshold: 0,
+    },
+  });
+
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'items',
@@ -91,6 +151,11 @@ export default function CreatePurchaseInvoicePage() {
   const suppliersQuery = useQuery({
     queryKey: ['suppliers-for-purchase'],
     queryFn: () => getSuppliers(1, { per_page: 1000 }),
+  });
+
+  const categoriesQuery = useQuery({
+    queryKey: ['categories-for-purchase-create'],
+    queryFn: () => getCategories({ page: 1, per_page: 1000 }),
   });
 
   const createMutation = useMutation({
@@ -104,7 +169,92 @@ export default function CreatePurchaseInvoicePage() {
     onError: (error) => toast.error(getApiErrorMessage(error, 'تعذر إنشاء فاتورة الشراء')),
   });
 
+  const createProductWithVariantMutation = useMutation({
+    mutationFn: async (formValues) => {
+      const productPayload = {
+        category_id: Number(formValues.category_id),
+        name: formValues.product_name?.trim() || '',
+      };
+
+      const createdProductResponse = await createProduct(productPayload);
+      const createdProduct = extractCreatedProduct(createdProductResponse);
+
+      if (!createdProduct?.id) {
+        throw new Error('تعذر إنشاء المنتج');
+      }
+
+      const variantPayload = {
+        name: formValues.variant_name?.trim() || '',
+        sku: formValues.sku?.trim() || '',
+        purchase_price: Number(formValues.purchase_price) || 0,
+        sale_price: Number(formValues.sale_price) || 0,
+        low_stock_threshold: Number(formValues.low_stock_threshold) || 0,
+      };
+
+      const createdVariantResponse = await addVariant(createdProduct.id, variantPayload);
+      const createdVariant = extractCreatedVariant(createdVariantResponse);
+
+      if (!createdVariant?.id) {
+        throw new Error('تم إنشاء المنتج لكن تعذر إنشاء الحجم');
+      }
+
+      return {
+        product: createdProduct,
+        variant: {
+          ...createdVariant,
+          name: createdVariant?.name || formValues.variant_name,
+          purchase_price:
+            createdVariant?.purchase_price ??
+            Number(formValues.purchase_price) ??
+            0,
+          sale_price: createdVariant?.sale_price ?? Number(formValues.sale_price) ?? 0,
+          current_stock: createdVariant?.current_stock ?? 0,
+        },
+      };
+    },
+    onSuccess: ({ product, variant }) => {
+      toast.success('تم إنشاء المنتج والحجم بنجاح');
+
+      if (typeof createProductRowIndex === 'number') {
+        const variantLabel = `${product?.name || ''} - ${variant?.name || ''}`.trim();
+
+        setValue(`items.${createProductRowIndex}.variant_id`, Number(variant.id), {
+          shouldValidate: true,
+          shouldDirty: true,
+        });
+
+        setValue(
+          `items.${createProductRowIndex}.unit_price`,
+          Number(variant?.purchase_price ?? variant?.sale_price ?? 0),
+          {
+            shouldValidate: true,
+            shouldDirty: true,
+          }
+        );
+
+        setSelectedVariants((previous) => ({
+          ...previous,
+          [createProductRowIndex]: {
+            ...variant,
+            id: Number(variant.id),
+            name: variantLabel,
+            current_stock: Number(variant?.current_stock ?? 0),
+          },
+        }));
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      setShowCreateProductModal(false);
+      setCreateProductRowIndex(null);
+      resetCreateProduct();
+    },
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error, error?.message || 'تعذر إنشاء المنتج والحجم'));
+    },
+  });
+
   const suppliers = extractItems(suppliersQuery.data);
+  const categories = extractCategories(categoriesQuery.data);
   const itemsValues = watch('items');
 
   const totalAmount = itemsValues.reduce((sum, item) => {
@@ -135,7 +285,7 @@ export default function CreatePurchaseInvoicePage() {
     createMutation.mutate(payload);
   };
 
-  if (suppliersQuery.isLoading) {
+  if (suppliersQuery.isLoading || categoriesQuery.isLoading) {
     return <LoadingSpinner />;
   }
 
@@ -231,6 +381,16 @@ export default function CreatePurchaseInvoicePage() {
                       <p className="text-xs text-text-muted">
                         المتاح: {stock.toLocaleString('ar-EG')} قطعة
                       </p>
+                      <button
+                        type="button"
+                        className="mt-1 text-xs font-medium text-primary hover:underline"
+                        onClick={() => {
+                          setCreateProductRowIndex(index);
+                          setShowCreateProductModal(true);
+                        }}
+                      >
+                        + المنتج غير موجود؟ إضافة منتج جديد
+                      </button>
                       {errors.items?.[index]?.variant_id ? (
                         <p className="text-xs text-danger">{errors.items[index].variant_id.message}</p>
                       ) : null}
@@ -316,6 +476,97 @@ export default function CreatePurchaseInvoicePage() {
           </div>
         </div>
       </form>
+
+      <Dialog
+        open={showCreateProductModal}
+        onOpenChange={(open) => {
+          setShowCreateProductModal(open);
+          if (!open) {
+            setCreateProductRowIndex(null);
+            resetCreateProduct();
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>إضافة منتج وحجم جديد</DialogTitle>
+            <DialogDescription>أدخل بيانات المنتج ثم الحجم لإضافته مباشرة داخل الفاتورة.</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmitCreateProduct((values) => createProductWithVariantMutation.mutate(values))} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">التصنيف *</label>
+              <select
+                {...registerCreateProduct('category_id')}
+                className="h-11 w-full rounded-lg border border-border bg-white px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <option value={0}>اختر التصنيف</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+              {createProductErrors.category_id ? <p className="text-sm text-danger">{createProductErrors.category_id.message}</p> : null}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">اسم المنتج *</label>
+              <Input {...registerCreateProduct('product_name')} placeholder="اسم المنتج" />
+              {createProductErrors.product_name ? <p className="text-sm text-danger">{createProductErrors.product_name.message}</p> : null}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">اسم الحجم *</label>
+              <Input {...registerCreateProduct('variant_name')} placeholder="مثال: عبوة 1 لتر" />
+              {createProductErrors.variant_name ? <p className="text-sm text-danger">{createProductErrors.variant_name.message}</p> : null}
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">سعر الشراء *</label>
+                <Input type="number" min="0" step="0.01" {...registerCreateProduct('purchase_price')} />
+                {createProductErrors.purchase_price ? <p className="text-sm text-danger">{createProductErrors.purchase_price.message}</p> : null}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">سعر البيع *</label>
+                <Input type="number" min="0" step="0.01" {...registerCreateProduct('sale_price')} />
+                {createProductErrors.sale_price ? <p className="text-sm text-danger">{createProductErrors.sale_price.message}</p> : null}
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">SKU</label>
+                <Input {...registerCreateProduct('sku')} placeholder="اختياري" />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">حد التنبيه</label>
+                <Input type="number" min="0" step="1" {...registerCreateProduct('low_stock_threshold')} />
+                {createProductErrors.low_stock_threshold ? (
+                  <p className="text-sm text-danger">{createProductErrors.low_stock_threshold.message}</p>
+                ) : null}
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCreateProductModal(false)}
+                disabled={createProductWithVariantMutation.isPending}
+              >
+                إلغاء
+              </Button>
+              <Button type="submit" disabled={createProductWithVariantMutation.isPending}>
+                {createProductWithVariantMutation.isPending ? 'جاري الإضافة...' : 'إضافة المنتج'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
