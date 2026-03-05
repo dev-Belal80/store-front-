@@ -1,10 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, Plus, XCircle } from 'lucide-react';
+import { Eye, HandCoins, Plus, Search, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getCustomers } from '../../../api/customers';
+import { createCustomerPayment } from '../../../api/payments';
 import { cancelSalesInvoice, getSalesInvoice, getSalesInvoices } from '../../../api/salesInvoices';
+import BalanceDisplay from '../../../components/shared/BalanceDisplay';
 import DataTable from '../../../components/shared/DataTable';
 import LoadingSpinner from '../../../components/shared/LoadingSpinner';
 import PageHeader from '../../../components/shared/PageHeader';
@@ -19,8 +24,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../../components/ui/dialog';
+import { Input } from '../../../components/ui/input';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { normalizePaginatedResponse } from '../../../utils/pagination';
+
+const customerReceiptSchema = z.object({
+  party_id: z.coerce.number().min(1, 'العميل مطلوب'),
+  amount: z.coerce.number().min(0.01, 'المبلغ يجب أن يكون أكبر من صفر'),
+  notes: z.string().optional(),
+  date: z.string().min(1, 'التاريخ مطلوب'),
+});
+
+const getTodayDate = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const extractItems = (response) => {
   const payload = response?.data?.data ?? response?.data ?? [];
@@ -106,10 +127,36 @@ export default function SalesInvoicesPage() {
   const [cancelInvoice, setCancelInvoice] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelReasonError, setCancelReasonError] = useState('');
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  const [receiptSearchTerm, setReceiptSearchTerm] = useState('');
+  const [debouncedReceiptSearchTerm, setDebouncedReceiptSearchTerm] = useState('');
+
+  const {
+    register: registerReceipt,
+    handleSubmit: handleReceiptSubmit,
+    reset: resetReceiptForm,
+    watch: watchReceipt,
+    setValue: setReceiptValue,
+    formState: { errors: receiptErrors },
+  } = useForm({
+    resolver: zodResolver(customerReceiptSchema),
+    defaultValues: {
+      party_id: 0,
+      amount: '',
+      notes: '',
+      date: getTodayDate(),
+    },
+  });
 
   const customersQuery = useQuery({
     queryKey: ['customers-for-sales-invoices'],
     queryFn: () => getCustomers(1, { per_page: 1000 }),
+  });
+
+  const customerReceiptsQuery = useQuery({
+    queryKey: ['customers-for-sales-receipts', debouncedReceiptSearchTerm],
+    queryFn: () => getCustomers(1, { per_page: 1000, search: debouncedReceiptSearchTerm || undefined }),
+    enabled: isReceiptModalOpen,
   });
 
   const salesInvoicesQuery = useQuery({
@@ -152,10 +199,43 @@ export default function SalesInvoicesPage() {
     },
   });
 
+  const customerReceiptMutation = useMutation({
+    mutationFn: (data) => createCustomerPayment(data),
+    onSuccess: () => {
+      toast.success('تم تسجيل التحصيل بنجاح');
+      setIsReceiptModalOpen(false);
+      setReceiptSearchTerm('');
+      setDebouncedReceiptSearchTerm('');
+      resetReceiptForm({
+        party_id: 0,
+        amount: '',
+        notes: '',
+        date: getTodayDate(),
+      });
+      queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
+    },
+    onError: () => toast.error('تعذر حفظ سند القبض'),
+  });
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedReceiptSearchTerm(receiptSearchTerm.trim());
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [receiptSearchTerm]);
+
   const invoices = salesInvoicesQuery.data?.items || [];
   const meta = salesInvoicesQuery.data?.meta || { page: 1, lastPage: 1, total: 0, perPage: SALES_INVOICES_PER_PAGE };
   const customers = extractItems(customersQuery.data);
+  const customersForReceipt = extractItems(customerReceiptsQuery.data);
   const statusOptions = getStatusOptions();
+  const selectedCustomerId = Number(watchReceipt('party_id')) || 0;
+  const selectedCustomer = customersForReceipt.find((customer) => Number(customer.id) === selectedCustomerId);
+
+  const onSubmitCustomerReceipt = (values) => {
+    customerReceiptMutation.mutate(values);
+  };
 
   const columns = useMemo(
     () => [
@@ -279,12 +359,24 @@ export default function SalesInvoicesPage() {
         title="فواتير البيع"
         subtitle="إدارة ومراجعة فواتير البيع"
         actions={
-          <Link to="/store/sales-invoices/create">
-            <Button type="button" className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              <span>فاتورة جديدة</span>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={() => setIsReceiptModalOpen(true)}
+            >
+              <HandCoins className="h-4 w-4" />
+              <span>تحصيل من عميل</span>
             </Button>
-          </Link>
+
+            <Link to="/store/sales-invoices/create">
+              <Button type="button" className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                <span>فاتورة جديدة</span>
+              </Button>
+            </Link>
+          </div>
         }
       />
 
@@ -392,6 +484,111 @@ export default function SalesInvoicesPage() {
               <DataTable columns={detailsColumns} data={detailItems} loading={false} emptyMessage="لا توجد بنود" />
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isReceiptModalOpen}
+        onOpenChange={(open) => {
+          setIsReceiptModalOpen(open);
+
+          if (!open) {
+            setReceiptSearchTerm('');
+            setDebouncedReceiptSearchTerm('');
+            resetReceiptForm({
+              party_id: 0,
+              amount: '',
+              notes: '',
+              date: getTodayDate(),
+            });
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <HandCoins className="h-5 w-5 text-green-600" />
+              <span>سند قبض — تحصيل من عميل</span>
+            </DialogTitle>
+            <DialogDescription>سجّل تحصيل نقدي من  عميل</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleReceiptSubmit(onSubmitCustomerReceipt)} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">العميل *</label>
+
+              <div className="relative">
+                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                <Input
+                  value={receiptSearchTerm}
+                  onChange={(event) => {
+                    setReceiptSearchTerm(event.target.value);
+                    setReceiptValue('party_id', 0);
+                  }}
+                  placeholder="ابحث عن عميل..."
+                  className="pr-9"
+                />
+              </div>
+
+              {customerReceiptsQuery.isLoading ? (
+                <LoadingSpinner size="sm" />
+              ) : (
+                <select
+                  {...registerReceipt('party_id')}
+                  className="h-11 w-full rounded-lg border border-border bg-white px-3 text-sm text-text"
+                >
+                  <option value={0}>اختر عميلًا</option>
+                  {customersForReceipt.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {selectedCustomer ? (
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-text-muted">
+                  {selectedCustomer.name} — الرصيد: <BalanceDisplay balance={Number(selectedCustomer.balance) || 0} />
+                </div>
+              ) : null}
+
+              {receiptErrors.party_id ? <p className="text-sm text-danger">{receiptErrors.party_id.message}</p> : null}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">المبلغ *</label>
+                <Input type="number" min="0" step="0.01" {...registerReceipt('amount')} />
+                {receiptErrors.amount ? <p className="text-sm text-danger">{receiptErrors.amount.message}</p> : null}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">التاريخ</label>
+                <Input type="date" {...registerReceipt('date')} />
+                {receiptErrors.date ? <p className="text-sm text-danger">{receiptErrors.date.message}</p> : null}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">الملاحظات</label>
+              <Input {...registerReceipt('notes')} placeholder="ملاحظات إضافية" />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsReceiptModalOpen(false)}
+                disabled={customerReceiptMutation.isPending}
+              >
+                إغلاق
+              </Button>
+
+              <Button type="submit" disabled={customerReceiptMutation.isPending}>
+                {customerReceiptMutation.isPending ? 'جاري الحفظ...' : '💾 حفظ سند القبض'}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

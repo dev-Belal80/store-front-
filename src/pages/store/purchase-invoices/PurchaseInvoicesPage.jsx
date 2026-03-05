@@ -1,9 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, Plus, Search, XCircle } from 'lucide-react';
+import { BanknoteArrowDown, Eye, Plus, Search, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { createSupplierPayment } from '../../../api/payments';
 import { cancelPurchaseInvoice, getPurchaseInvoices } from '../../../api/purchaseInvoices';
+import { getSuppliers } from '../../../api/suppliers';
+import BalanceDisplay from '../../../components/shared/BalanceDisplay';
 import DataTable from '../../../components/shared/DataTable';
 import LoadingSpinner from '../../../components/shared/LoadingSpinner';
 import PageHeader from '../../../components/shared/PageHeader';
@@ -14,6 +20,30 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '../../../components/ui/input';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { normalizePaginatedResponse } from '../../../utils/pagination';
+
+const supplierPaymentSchema = z.object({
+  party_id: z.coerce.number().min(1, 'المورد مطلوب'),
+  amount: z.coerce.number().min(0.01, 'المبلغ يجب أن يكون أكبر من صفر'),
+  notes: z.string().optional(),
+  date: z.string().min(1, 'التاريخ مطلوب'),
+});
+
+const getTodayDate = () => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const extractItems = (response) => {
+  const payload = response?.data?.data ?? response?.data ?? [];
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.suppliers)) return payload.suppliers;
+  if (Array.isArray(payload)) return payload;
+  return [];
+};
 
 const PURCHASE_INVOICES_PER_PAGE = 10;
 
@@ -72,6 +102,26 @@ export default function PurchaseInvoicesPage() {
   const [cancellingInvoice, setCancellingInvoice] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelReasonError, setCancelReasonError] = useState('');
+  const [isSupplierPaymentModalOpen, setIsSupplierPaymentModalOpen] = useState(false);
+  const [supplierSearchTerm, setSupplierSearchTerm] = useState('');
+  const [debouncedSupplierSearchTerm, setDebouncedSupplierSearchTerm] = useState('');
+
+  const {
+    register: registerSupplierPayment,
+    handleSubmit: handleSupplierPaymentSubmit,
+    reset: resetSupplierPaymentForm,
+    setValue: setSupplierPaymentValue,
+    watch: watchSupplierPayment,
+    formState: { errors: supplierPaymentErrors },
+  } = useForm({
+    resolver: zodResolver(supplierPaymentSchema),
+    defaultValues: {
+      party_id: 0,
+      amount: '',
+      notes: '',
+      date: getTodayDate(),
+    },
+  });
 
   const purchaseInvoicesQuery = useQuery({
     queryKey: ['purchase-invoices', currentPage, searchTerm, statusFilter],
@@ -83,6 +133,12 @@ export default function PurchaseInvoicesPage() {
         })
       ),
     keepPreviousData: true,
+  });
+
+  const suppliersForPaymentsQuery = useQuery({
+    queryKey: ['suppliers-for-purchase-payments', debouncedSupplierSearchTerm],
+    queryFn: () => getSuppliers(1, { per_page: 1000, search: debouncedSupplierSearchTerm || undefined }),
+    enabled: isSupplierPaymentModalOpen,
   });
 
   const cancelMutation = useMutation({
@@ -104,6 +160,32 @@ export default function PurchaseInvoicesPage() {
     },
   });
 
+  const supplierPaymentMutation = useMutation({
+    mutationFn: (data) => createSupplierPayment(data),
+    onSuccess: () => {
+      toast.success('تم تسجيل الدفع بنجاح');
+      setIsSupplierPaymentModalOpen(false);
+      setSupplierSearchTerm('');
+      setDebouncedSupplierSearchTerm('');
+      resetSupplierPaymentForm({
+        party_id: 0,
+        amount: '',
+        notes: '',
+        date: getTodayDate(),
+      });
+      queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+    },
+    onError: () => toast.error('تعذر حفظ سند الصرف'),
+  });
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setDebouncedSupplierSearchTerm(supplierSearchTerm.trim());
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [supplierSearchTerm]);
+
   const onCancelConfirm = () => {
     const reason = cancelReason.trim();
     if (!reason) {
@@ -116,6 +198,13 @@ export default function PurchaseInvoicesPage() {
 
   const invoices = purchaseInvoicesQuery.data?.items || [];
   const meta = purchaseInvoicesQuery.data?.meta || { page: 1, lastPage: 1, total: 0, perPage: PURCHASE_INVOICES_PER_PAGE };
+  const suppliersForPayments = extractItems(suppliersForPaymentsQuery.data);
+  const selectedSupplierId = Number(watchSupplierPayment('party_id')) || 0;
+  const selectedSupplier = suppliersForPayments.find((supplier) => Number(supplier.id) === selectedSupplierId);
+
+  const onSubmitSupplierPayment = (values) => {
+    supplierPaymentMutation.mutate(values);
+  };
 
   const columns = useMemo(
     () => [
@@ -192,12 +281,24 @@ export default function PurchaseInvoicesPage() {
         title="فواتير الشراء"
         subtitle="إدارة ومراجعة فواتير الشراء"
         actions={
-          <Link to="/store/purchase-invoices/create">
-            <Button type="button" className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              <span>إضافة فاتورة شراء</span>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex items-center gap-2"
+              onClick={() => setIsSupplierPaymentModalOpen(true)}
+            >
+              <BanknoteArrowDown className="h-4 w-4" />
+              <span>سند صرف لمورد</span>
             </Button>
-          </Link>
+
+            <Link to="/store/purchase-invoices/create">
+              <Button type="button" className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                <span>إضافة فاتورة شراء</span>
+              </Button>
+            </Link>
+          </div>
         }
       />
 
@@ -248,6 +349,117 @@ export default function PurchaseInvoicesPage() {
         }}
         isLoading={purchaseInvoicesQuery.isFetching}
       />
+
+      <Dialog
+        open={isSupplierPaymentModalOpen}
+        onOpenChange={(open) => {
+          setIsSupplierPaymentModalOpen(open);
+
+          if (!open) {
+            setSupplierSearchTerm('');
+            setDebouncedSupplierSearchTerm('');
+            resetSupplierPaymentForm({
+              party_id: 0,
+              amount: '',
+              notes: '',
+              date: getTodayDate(),
+            });
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BanknoteArrowDown className="h-5 w-5 text-amber-600" />
+              <span>سند صرف — دفع لمورد</span>
+            </DialogTitle>
+            <DialogDescription>سجّل دفعًا نقديًا للمورد</DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSupplierPaymentSubmit(onSubmitSupplierPayment)} className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">المورد *</label>
+
+              <div className="relative">
+                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                <Input
+                  value={supplierSearchTerm}
+                  onChange={(event) => {
+                    setSupplierSearchTerm(event.target.value);
+                    setSupplierPaymentValue('party_id', 0);
+                  }}
+                  placeholder="ابحث عن مورد..."
+                  className="pr-9"
+                />
+              </div>
+
+              {suppliersForPaymentsQuery.isLoading ? (
+                <LoadingSpinner size="sm" />
+              ) : (
+                <select
+                  {...registerSupplierPayment('party_id')}
+                  className="h-11 w-full rounded-lg border border-border bg-white px-3 text-sm text-text"
+                >
+                  <option value={0}>اختر موردًا</option>
+                  {suppliersForPayments.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {selectedSupplier ? (
+                <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-text-muted">
+                  {selectedSupplier.name} — الرصيد: <BalanceDisplay balance={Number(selectedSupplier.balance) || 0} />
+                </div>
+              ) : null}
+
+              {supplierPaymentErrors.party_id ? (
+                <p className="text-sm text-danger">{supplierPaymentErrors.party_id.message}</p>
+              ) : null}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">المبلغ *</label>
+                <Input type="number" min="0" step="0.01" {...registerSupplierPayment('amount')} />
+                {supplierPaymentErrors.amount ? (
+                  <p className="text-sm text-danger">{supplierPaymentErrors.amount.message}</p>
+                ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">التاريخ</label>
+                <Input type="date" {...registerSupplierPayment('date')} />
+                {supplierPaymentErrors.date ? (
+                  <p className="text-sm text-danger">{supplierPaymentErrors.date.message}</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">الملاحظات</label>
+              <Input {...registerSupplierPayment('notes')} placeholder="ملاحظات إضافية" />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsSupplierPaymentModalOpen(false)}
+                disabled={supplierPaymentMutation.isPending}
+              >
+                إغلاق
+              </Button>
+
+              <Button type="submit" disabled={supplierPaymentMutation.isPending}>
+                {supplierPaymentMutation.isPending ? 'جاري الحفظ...' : '💾 حفظ سند الصرف'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(cancellingInvoice)}

@@ -23,7 +23,7 @@ const pageTitles = {
   '/store/sales-invoices': 'فواتير البيع',
   '/store/purchase-invoices': 'فواتير الشراء',
   '/store/payments': 'المدفوعات',
-  '/store/cash': 'الصندوق',
+  '/store/cash': 'الخزنة',
 };
 
 const getPageTitle = (pathname) => {
@@ -63,8 +63,7 @@ export default function StoreLayout() {
       { label: 'التصنيفات', icon: BadgePercent, path: '/store/categories' },
       { label: 'فواتير البيع', icon: FileSpreadsheet, path: '/store/sales-invoices' },
       { label: 'فواتير الشراء', icon: ShoppingCart, path: '/store/purchase-invoices' },
-      { label: 'المدفوعات', icon: HandCoins, path: '/store/payments' },
-      { label: 'الصندوق', icon: Banknote, path: '/store/cash' },
+      { label: 'الخزنة', icon: Banknote, path: '/store/cash' },
     ],
     []
   );

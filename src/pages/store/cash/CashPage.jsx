@@ -29,6 +29,34 @@ const toNumber = (value) => {
 
 const extractPayload = (response) => response?.data?.data ?? response?.data ?? {};
 
+const pickFirstDefined = (values) => values.find((value) => value !== null && value !== undefined);
+
+const getOpeningBalanceStatus = (payload) => {
+  const explicitBoolean = pickFirstDefined([
+    typeof payload?.has_opening_balance === 'boolean' ? payload.has_opening_balance : undefined,
+    typeof payload?.hasOpeningBalance === 'boolean' ? payload.hasOpeningBalance : undefined,
+    typeof payload?.opening_balance_set === 'boolean' ? payload.opening_balance_set : undefined,
+    typeof payload?.openingBalanceSet === 'boolean' ? payload.openingBalanceSet : undefined,
+    typeof payload?.is_opening_balance_set === 'boolean' ? payload.is_opening_balance_set : undefined,
+    typeof payload?.isOpeningBalanceSet === 'boolean' ? payload.isOpeningBalanceSet : undefined,
+  ]);
+
+  const openingBalanceValue = pickFirstDefined([
+    payload?.opening_balance,
+    payload?.openingBalance,
+    payload?.opening_balance_amount,
+    payload?.openingBalanceAmount,
+    payload?.initial_balance,
+    payload?.initialBalance,
+  ]);
+
+  const hasOpeningByValue = openingBalanceValue !== null && openingBalanceValue !== undefined && openingBalanceValue !== '';
+
+  return {
+    hasOpeningBalance: typeof explicitBoolean === 'boolean' ? explicitBoolean : hasOpeningByValue,
+  };
+};
+
 export default function CashPage() {
   const queryClient = useQueryClient();
   const [reportDate, setReportDate] = useState(getTodayDate());
@@ -74,7 +102,9 @@ export default function CashPage() {
         'تعذر تسجيل الرصيد الافتتاحي';
 
       const normalizedMessage = String(message).trim();
-      const isAlreadySetError = normalizedMessage.includes('تم تسجيل الرصيد الافتتاحي مسبقاً');
+      const isAlreadySetError =
+        normalizedMessage.includes('تم تسجيل الرصيد الافتتاحي مسبق') ||
+        normalizedMessage.includes('already set');
 
       if (isAlreadySetError) {
         setOpeningBalanceAlreadySet(true);
@@ -88,19 +118,20 @@ export default function CashPage() {
 
   const balancePayload = balanceQuery.data || {};
   const reportPayload = useMemo(() => reportQuery.data || {}, [reportQuery.data]);
+  const openingBalanceStatus = useMemo(() => getOpeningBalanceStatus(balancePayload), [balancePayload]);
 
   const currentBalance = toNumber(balancePayload?.current_balance ?? balancePayload?.balance);
-  const openingBalanceValue = balancePayload?.opening_balance;
-  const hasOpeningBalance =
-    openingBalanceAlreadySet ||
-    Boolean(balancePayload?.has_opening_balance) ||
-    (openingBalanceValue !== null && openingBalanceValue !== undefined);
+  const hasOpeningBalance = openingBalanceAlreadySet || openingBalanceStatus.hasOpeningBalance;
 
   useEffect(() => {
     if (hasOpeningBalance) {
       localStorage.setItem(OPENING_BALANCE_SET_KEY, '1');
+
+      if (!openingBalanceAlreadySet) {
+        setOpeningBalanceAlreadySet(true);
+      }
     }
-  }, [hasOpeningBalance]);
+  }, [hasOpeningBalance, openingBalanceAlreadySet]);
 
   const inToday = toNumber(reportPayload?.total_in ?? reportPayload?.in ?? reportPayload?.incoming);
   const outToday = toNumber(reportPayload?.total_out ?? reportPayload?.out ?? reportPayload?.outgoing);
@@ -171,7 +202,7 @@ export default function CashPage() {
 
   return (
     <div>
-      <PageHeader title="الصندوق النقدي" subtitle="متابعة الحركة النقدية اليومية" />
+      <PageHeader title="الخزنة النقدي" subtitle="متابعة الحركة النقدية اليومية" />
 
       <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatsCard title="الرصيد الحالي" value={formatCurrency(currentBalance)} icon={Wallet} color="blue" />

@@ -31,7 +31,6 @@ const productSchema = z.object({
 
 const variantSchema = z.object({
   name: z.string().min(1, 'اسم الحجم مطلوب'),
-  sku: z.string().optional(),
   purchase_price: z.coerce.number().min(0, 'سعر الشراء غير صحيح'),
   sale_price: z.coerce.number().min(0, 'سعر البيع غير صحيح'),
   low_stock_threshold: z.coerce.number().min(0, 'حد التنبيه غير صحيح').default(0),
@@ -133,7 +132,6 @@ export default function ProductsPage() {
     resolver: zodResolver(variantSchema),
     defaultValues: {
       name: '',
-      sku: '',
       purchase_price: 0,
       sale_price: 0,
       low_stock_threshold: 0,
@@ -173,7 +171,6 @@ export default function ProductsPage() {
         setEditingVariant(null);
         resetVariant({
           name: '',
-          sku: '',
           purchase_price: 0,
           sale_price: 0,
           low_stock_threshold: 0,
@@ -281,7 +278,6 @@ export default function ProductsPage() {
     setEditingVariant(null);
     resetVariant({
       name: '',
-      sku: '',
       purchase_price: 0,
       sale_price: 0,
       low_stock_threshold: 0,
@@ -294,7 +290,6 @@ export default function ProductsPage() {
     setEditingVariant(variant);
     resetVariant({
       name: variant?.name || '',
-      sku: variant?.sku || '',
       purchase_price: toNumber(variant?.purchase_price),
       sale_price: toNumber(variant?.sale_price),
       low_stock_threshold: toNumber(variant?.low_stock_threshold),
@@ -327,7 +322,6 @@ export default function ProductsPage() {
 
     const payload = {
       name: values.name?.trim() || '',
-      sku: values.sku?.trim() || '',
       purchase_price: Number(values.purchase_price) || 0,
       sale_price: Number(values.sale_price) || 0,
       low_stock_threshold: Number(values.low_stock_threshold) || 0,
@@ -469,7 +463,6 @@ export default function ProductsPage() {
                             >
                               <div>
                                 <div className="font-medium text-text">{variant?.name || '—'}</div>
-                                {variant?.sku ? <div className="text-xs text-text-muted">SKU: {variant.sku}</div> : null}
                               </div>
 
                               <div className="flex flex-wrap items-center gap-4 text-sm">
@@ -610,11 +603,6 @@ export default function ProductsPage() {
               <label className="text-sm font-medium text-text">اسم الحجم *</label>
               <Input {...registerVariant('name')} placeholder="مثال: 1 كيلو" />
               {variantErrors.name ? <p className="text-sm text-danger">{variantErrors.name.message}</p> : null}
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-text">كود SKU</label>
-              <Input {...registerVariant('sku')} placeholder="SKU" dir="ltr" />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">

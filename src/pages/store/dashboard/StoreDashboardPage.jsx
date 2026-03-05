@@ -399,7 +399,7 @@ export default function StoreDashboardPage() {
         ) : (
           <>
             <StatsMiniCard
-              title="رصيد الصندوق"
+              title="رصيد الخزنة"
               value={formatCurrency(cashBalance)}
               icon={Banknote}
               colorClass="bg-emerald-600"
