@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './index.css';
 import App from './App.jsx';
 import reportWebVitals from './reportWebVitals';
+import * as serviceWorkerRegistration from './serviceWorkerRegistration';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,3 +25,4 @@ root.render(
 );
 
 reportWebVitals();
+serviceWorkerRegistration.register();
