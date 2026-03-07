@@ -1,4 +1,4 @@
-const CACHE_NAME = 'store-app-v2';
+const CACHE_NAME = 'store-app-v3';
 
 // Files to cache for offline use:
 const urlsToCache = [
@@ -8,8 +8,8 @@ const urlsToCache = [
   '/static/js/bundle.js',
   '/static/css/main.chunk.css',
   '/manifest.json',
-  '/icons/icon-192x192.png?v=20260307',
-  '/icons/icon-512x512.png?v=20260307',
+  '/icons/icon-192x192.png?v=20260308',
+  '/icons/icon-512x512.png?v=20260308',
 ];
 
 // Install - cache files:
