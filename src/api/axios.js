@@ -1,6 +1,8 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+const FORCE_LOGOUT_ON_401 = String(process.env.REACT_APP_FORCE_LOGOUT_ON_401 || 'false').toLowerCase() === 'true';
+
 const api = axios.create({
   baseURL: process.env.REACT_APP_API_URL,
 });
@@ -26,12 +28,14 @@ api.interceptors.response.use(
     const status = error?.response?.status;
 
     if (status === 401) {
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('auth_user');
-      localStorage.removeItem('auth_store');
+      if (FORCE_LOGOUT_ON_401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+        localStorage.removeItem('auth_store');
 
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
       }
     }
 
