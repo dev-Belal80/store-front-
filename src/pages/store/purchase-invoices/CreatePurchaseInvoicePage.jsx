@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '../../../components/ui/dialog';
 import { Input } from '../../../components/ui/input';
+import { useAuthStore } from '../../../store/authStore';
 import { formatCurrency } from '../../../utils/formatters';
 
 const getApiErrorMessage = (error, fallback) => {
@@ -105,7 +106,7 @@ const extractCreatedVariant = (response) => {
   return null;
 };
 
-function QuickAddBar({ onAdd }) {
+function QuickAddBar({ onAdd, storeId }) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -127,8 +128,8 @@ function QuickAddBar({ onAdd }) {
   }, []);
 
   const variantsQuery = useQuery({
-    queryKey: ['purchase-quick-add', debouncedSearch],
-    queryFn: () => searchVariants(debouncedSearch),
+    queryKey: ['purchase-quick-add', storeId, debouncedSearch],
+    queryFn: () => searchVariants(debouncedSearch, { store_id: storeId || undefined }),
     enabled: debouncedSearch.trim().length > 0,
     keepPreviousData: true,
   });
@@ -213,9 +214,11 @@ function QuickAddBar({ onAdd }) {
 export default function CreatePurchaseInvoicePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const store = useAuthStore((state) => state.store);
   const [selectedVariants, setSelectedVariants] = useState({});
   const [showCreateProductModal, setShowCreateProductModal] = useState(false);
   const [createProductRowIndex, setCreateProductRowIndex] = useState(null);
+  const currentStoreId = Number(store?.id ?? store?.store_id ?? 0) || undefined;
 
   const {
     register,
@@ -482,7 +485,7 @@ export default function CreatePurchaseInvoicePage() {
             <div className="border-b border-border p-3">
               <div className="flex items-center gap-2">
                 <div className="flex-1">
-                  <QuickAddBar onAdd={handleQuickAdd} />
+                  <QuickAddBar onAdd={handleQuickAdd} storeId={currentStoreId} />
                 </div>
                 <Button
                   type="button"
@@ -548,7 +551,7 @@ export default function CreatePurchaseInvoicePage() {
                               );
                               setSelectedVariants((previous) => ({ ...previous, [index]: selectedVariant || null }));
                             }}
-                            fetchFn={searchVariants}
+                            fetchFn={(search) => searchVariants(search, { store_id: currentStoreId })}
                             queryKey={`purchase-variants-search-${index}`}
                             placeholder="ابحث..."
                             renderOption={(item) => {

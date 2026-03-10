@@ -17,18 +17,20 @@ export const updateVariant = (productId, variantId, data) =>
 	axios.put(`/store/products/${productId}/variants/${variantId}`, data);
 export const deleteVariant = (productId, variantId) => axios.delete(`/store/products/${productId}/variants/${variantId}`);
 
-export const searchProducts = (search = '') =>
+export const searchProducts = (search = '', filters = {}) =>
 	axios.get('/store/products', {
 		params: {
 			search,
 			per_page: 20,
+			...filters,
 		},
 	});
 
-export const searchVariants = (search = '') =>
+export const searchVariants = (search = '', filters = {}) =>
 	axios.get('/store/products/dropdown', {
 		params: {
 			search,
 			per_page: 20,
+			...filters,
 		},
 	});

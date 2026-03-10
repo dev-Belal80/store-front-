@@ -43,8 +43,10 @@ const normalizeItem = (item) => {
 
 const extractDeficits = (response) => {
   const payload = response?.data?.data ?? response?.data ?? [];
+  if (Array.isArray(payload?.deficits)) return payload.deficits;
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(response?.data?.deficits)) return response.data.deficits;
   if (Array.isArray(payload)) return payload;
   return [];
 };
@@ -70,16 +72,17 @@ export default function InventoryPage() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const currentStoreId = Number(store?.id ?? store?.store_id ?? 0) || undefined;
 
   const inventoryQuery = useQuery({
-    queryKey: ['inventory'],
-    queryFn: async () => extractInventoryItems(await getInventory()),
+    queryKey: ['inventory', currentStoreId],
+    queryFn: async () => extractInventoryItems(await getInventory({ store_id: currentStoreId })),
     staleTime: 5 * 60 * 1000,
   });
 
   const deficitsQuery = useQuery({
-    queryKey: ['inventory-deficits'],
-    queryFn: async () => extractDeficits(await getInventoryDeficits()),
+    queryKey: ['inventory-deficits', currentStoreId],
+    queryFn: async () => extractDeficits(await getInventoryDeficits({ store_id: currentStoreId })),
     staleTime: 60 * 1000,
   });
 
@@ -105,6 +108,19 @@ export default function InventoryPage() {
       })
       .filter((item) => item.deficit > 0);
   }, [deficitsQuery.data]);
+
+  const deficitsFromInventory = useMemo(() => {
+    return inventory
+      .filter((item) => Number(item.current_stock) < 0)
+      .map((item) => ({
+        variant_id: item.variant_id,
+        product_name: item.product_name,
+        variant_name: item.variant_name,
+        deficit: Math.abs(Number(item.current_stock) || 0),
+      }));
+  }, [inventory]);
+
+  const deficitItems = deficits.length > 0 ? deficits : deficitsFromInventory;
 
   const categories = useMemo(() => {
     const set = new Set(inventory.map((item) => item.category || '—'));
@@ -256,11 +272,11 @@ export default function InventoryPage() {
         />
       </div>
 
-      {deficits.length > 0 ? (
+      {deficitItems.length > 0 ? (
         <div className="mb-4 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 no-print">
           <div className="mb-3 flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-600" />
-            <h3 className="font-bold text-amber-800">تنبيه: يوجد عجز في {deficits.length.toLocaleString('ar-EG')} منتج</h3>
+            <h3 className="font-bold text-amber-800">تنبيه: يوجد عجز في {deficitItems.length.toLocaleString('ar-EG')} منتج</h3>
           </div>
 
           <div className="overflow-x-auto">
@@ -274,7 +290,7 @@ export default function InventoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {deficits.map((item, index) => (
+                {deficitItems.map((item, index) => (
                   <tr key={item.variant_id || index} className="border-b border-amber-200 last:border-0">
                     <td className="py-2 font-medium text-amber-900">{item.product_name}</td>
                     <td className="py-2 text-amber-700">{item.variant_name}</td>

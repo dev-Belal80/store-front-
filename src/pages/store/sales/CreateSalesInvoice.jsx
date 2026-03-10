@@ -13,6 +13,7 @@ import PageHeader from '../../../components/shared/PageHeader';
 import SearchableSelect from '../../../components/shared/SearchableSelect';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
+import { useAuthStore } from '../../../store/authStore';
 import { formatCurrency } from '../../../utils/formatters';
 
 const itemSchema = z.object({
@@ -53,7 +54,7 @@ const extractItems = (response) => {
   return [];
 };
 
-function QuickAddBar({ onAdd }) {
+function QuickAddBar({ onAdd, storeId }) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -75,8 +76,8 @@ function QuickAddBar({ onAdd }) {
   }, []);
 
   const variantsQuery = useQuery({
-    queryKey: ['sales-quick-add', debouncedSearch],
-    queryFn: () => searchVariants(debouncedSearch),
+    queryKey: ['sales-quick-add', storeId, debouncedSearch],
+    queryFn: () => searchVariants(debouncedSearch, { store_id: storeId || undefined }),
     enabled: debouncedSearch.trim().length > 0,
     keepPreviousData: true,
   });
@@ -161,6 +162,7 @@ function QuickAddBar({ onAdd }) {
 export default function CreateSalesInvoice() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const store = useAuthStore((state) => state.store);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [selectedVariants, setSelectedVariants] = useState({});
   const [showDeficitConfirm, setShowDeficitConfirm] = useState(false);
@@ -204,7 +206,11 @@ export default function CreateSalesInvoice() {
         [];
       const hasDeficits = Array.isArray(deficits) && deficits.length > 0;
       const invoiceNumber = invoice?.invoice_number || `INV-${invoice?.id || 'XXXX'}`;
-      toast.success(`تم إنشاء الفاتورة رقم ${invoiceNumber} بنجاح`);
+      toast.success(
+        hasDeficits
+          ? `تم حفظ الفاتورة رقم ${invoiceNumber} بنجاح. يوجد عجز في ${deficits.length} منتج.`
+          : `تم إنشاء الفاتورة رقم ${invoiceNumber} بنجاح`
+      );
 
       if (hasDeficits) {
         setTimeout(() => {
@@ -258,6 +264,7 @@ export default function CreateSalesInvoice() {
 
   const hasStockViolation = stockViolations.some(Boolean);
   const isSaveDisabled = fields.length === 0 || selectedCustomerId <= 0;
+  const currentStoreId = Number(store?.id ?? store?.store_id ?? 0) || undefined;
 
   const submitInvoice = (values) => {
     createMutation.mutate({
@@ -418,7 +425,7 @@ export default function CreateSalesInvoice() {
 
           <div className="overflow-hidden rounded-xl border border-border bg-white">
             <div className="border-b border-border p-3">
-              <QuickAddBar onAdd={handleQuickAdd} />
+              <QuickAddBar onAdd={handleQuickAdd} storeId={currentStoreId} />
             </div>
 
             <div className="max-h-[380px] overflow-auto">
@@ -467,7 +474,7 @@ export default function CreateSalesInvoice() {
                               });
                               setSelectedVariants((previous) => ({ ...previous, [index]: selectedVariant || null }));
                             }}
-                            fetchFn={searchVariants}
+                            fetchFn={(search) => searchVariants(search, { store_id: currentStoreId })}
                             queryKey={`variants-search-${index}`}
                             placeholder="ابحث..."
                             renderOption={(item) => {

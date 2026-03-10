@@ -1,4 +1,15 @@
 import axios from './axios';
 
-export const getInventory = () => axios.get('/store/inventory');
-export const getInventoryDeficits = () => axios.get('/store/inventory/deficits');
+export const getInventory = (filters = {}) =>
+	axios.get('/store/inventory', {
+		params: {
+			...filters,
+		},
+	});
+
+export const getInventoryDeficits = (filters = {}) =>
+	axios.get('/store/inventory/deficits', {
+		params: {
+			...filters,
+		},
+	});

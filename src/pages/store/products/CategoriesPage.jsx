@@ -9,7 +9,6 @@ import { createCategory, deleteCategory, getCategories } from '../../../api/cate
 import ConfirmDialog from '../../../components/shared/ConfirmDialog';
 import DataTable from '../../../components/shared/DataTable';
 import LoadingSpinner from '../../../components/shared/LoadingSpinner';
-import PaginationControls from '../../../components/shared/PaginationControls';
 import PageHeader from '../../../components/shared/PageHeader';
 import { Button } from '../../../components/ui/button';
 import {
@@ -27,11 +26,25 @@ const categorySchema = z.object({
   name: z.string().min(1, 'اسم التصنيف مطلوب'),
 });
 
+const getCategoryCreateErrorMessage = (error) => {
+  const apiMessage = error?.response?.data?.message;
+  const nameErrors = error?.response?.data?.errors?.name;
+
+  if (Array.isArray(nameErrors) && nameErrors.length > 0) {
+    const first = String(nameErrors[0] || '').trim();
+    if (first) return first;
+  }
+
+  if (typeof apiMessage === 'string' && apiMessage.trim()) {
+    return apiMessage;
+  }
+
+  return 'تعذر إضافة التصنيف';
+};
+
 export default function CategoriesPage() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(25);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [deletingCategory, setDeletingCategory] = useState(null);
 
@@ -48,12 +61,10 @@ export default function CategoriesPage() {
   });
 
   const categoriesQuery = useQuery({
-    queryKey: ['categories', page, perPage, searchTerm],
+    queryKey: ['categories', searchTerm],
     queryFn: async () =>
       normalizePaginatedResponse(
         await getCategories({
-          page,
-          per_page: perPage,
           search: searchTerm || undefined,
         })
       ),
@@ -61,7 +72,6 @@ export default function CategoriesPage() {
   });
 
   const categories = categoriesQuery.data?.items || [];
-  const pagination = categoriesQuery.data?.meta || { page: 1, perPage, total: categories.length, lastPage: 1 };
 
   const createMutation = useMutation({
     mutationFn: (data) => createCategory(data),
@@ -71,7 +81,7 @@ export default function CategoriesPage() {
       reset({ name: '' });
       queryClient.invalidateQueries({ queryKey: ['categories'] });
     },
-    onError: () => toast.error('تعذر إضافة التصنيف'),
+    onError: (error) => toast.error(getCategoryCreateErrorMessage(error)),
   });
 
   const deleteMutation = useMutation({
@@ -140,10 +150,7 @@ export default function CategoriesPage() {
       <div className="mb-4 rounded-xl border border-border bg-white p-3">
         <Input
           value={searchTerm}
-          onChange={(event) => {
-            setSearchTerm(event.target.value);
-            setPage(1);
-          }}
+          onChange={(event) => setSearchTerm(event.target.value)}
           placeholder="بحث باسم التصنيف..."
         />
       </div>
@@ -153,18 +160,6 @@ export default function CategoriesPage() {
       ) : (
         <DataTable columns={columns} data={categories} loading={categoriesQuery.isFetching} emptyMessage="لا توجد تصنيفات" emptyIcon={Tags} />
       )}
-
-      <PaginationControls
-        page={pagination.page}
-        perPage={pagination.perPage}
-        total={pagination.total}
-        lastPage={pagination.lastPage}
-        onPageChange={(nextPage) => setPage(nextPage)}
-        onPerPageChange={(nextPerPage) => {
-          setPerPage(nextPerPage);
-          setPage(1);
-        }}
-      />
 
       <Dialog
         open={isFormOpen}

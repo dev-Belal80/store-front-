@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ChevronDown, ChevronLeft, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Package, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getCategories } from '../../../api/categories';
 import {
@@ -22,7 +22,8 @@ import PageHeader from '../../../components/shared/PageHeader';
 import { Button } from '../../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../../components/ui/dialog';
 import { Input } from '../../../components/ui/input';
-import { formatCurrency } from '../../../utils/formatters';
+import { useAuthStore } from '../../../store/authStore';
+import { normalizePaginatedResponse } from '../../../utils/pagination';
 
 const productSchema = z.object({
   category_id: z.coerce.number().min(1, 'التصنيف مطلوب'),
@@ -43,13 +44,6 @@ const toNumber = (value) => {
 
 const extractCategoryItems = (response) => {
   const payload = response?.data?.data ?? response?.data ?? [];
-  if (Array.isArray(payload?.data)) return payload.data;
-  if (Array.isArray(payload)) return payload;
-  return [];
-};
-
-const extractProducts = (response) => {
-  const payload = response?.data?.data ?? response?.data ?? {};
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload)) return payload;
   return [];
@@ -95,12 +89,181 @@ const canDeleteProduct = (product) => {
   });
 };
 
+function ProductsTableSkeleton() {
+  return (
+    <div className="divide-y divide-border">
+      {[1, 2, 3, 4, 5].map((row) => (
+        <div key={row} className="flex items-center gap-4 p-4">
+          <div className="h-4 w-6 animate-pulse rounded bg-slate-200" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-4 w-32 animate-pulse rounded bg-slate-200" />
+            <div className="h-3 w-20 animate-pulse rounded bg-slate-100" />
+          </div>
+          <div className="h-5 w-20 animate-pulse rounded-full bg-slate-100" />
+          <div className="flex gap-1.5">
+            <div className="h-6 w-16 animate-pulse rounded-full bg-slate-100" />
+            <div className="h-6 w-20 animate-pulse rounded-full bg-slate-100" />
+            <div className="h-6 w-12 animate-pulse rounded-full bg-slate-100" />
+          </div>
+          <div className="h-6 w-16 animate-pulse rounded bg-slate-100" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VariantBadge({ variant, onEdit, onDelete }) {
+  const [showMenu, setShowMenu] = useState(false);
+  const stock = toNumber(variant?.current_stock);
+  const lowStock = isVariantLowStock(variant);
+
+  const badgeStyle = stock <= 0
+    ? 'border-red-200 bg-red-50 text-red-700'
+    : lowStock
+      ? 'border-amber-200 bg-amber-50 text-amber-700'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+
+  const dotStyle = stock <= 0
+    ? 'bg-red-500'
+    : lowStock
+      ? 'bg-amber-500'
+      : 'bg-emerald-500';
+
+  const tooltipText = `سعر الشراء: ${toNumber(variant?.purchase_price).toLocaleString('ar-EG')} | سعر البيع: ${toNumber(variant?.sale_price).toLocaleString('ar-EG')}`;
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setShowMenu((previous) => !previous)}
+        title={tooltipText}
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all hover:shadow-sm ${badgeStyle}`}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${dotStyle}`} />
+        <span>{variant?.name || '—'}</span>
+        <span className="font-mono opacity-80">×{stock.toLocaleString('ar-EG')}</span>
+      </button>
+
+      {showMenu ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-10 cursor-default"
+            onClick={() => setShowMenu(false)}
+            aria-label="إغلاق قائمة الإجراءات"
+          />
+          <div className="absolute right-0 top-full z-20 mt-1 min-w-28 overflow-hidden rounded-lg border border-border bg-white shadow-lg">
+            <button
+              type="button"
+              onClick={() => {
+                onEdit();
+                setShowMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text hover:bg-slate-50"
+            >
+              <Pencil className="h-3.5 w-3.5 text-blue-500" />
+              تعديل
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onDelete();
+                setShowMenu(false);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              حذف
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function ProductRow({
+  product,
+  rowNumber,
+  categoryName,
+  onEdit,
+  onDelete,
+  onAddVariant,
+  onEditVariant,
+  onDeleteVariant,
+}) {
+  const variants = getProductVariants(product);
+  const productCanDelete = canDeleteProduct(product);
+
+  return (
+    <tr className="group border-b border-border last:border-0 hover:bg-slate-50/50">
+      <td className="px-4 py-3 text-xs text-text-muted">{rowNumber.toLocaleString('ar-EG')}</td>
+
+      <td className="px-4 py-3">
+        <p className="font-semibold text-text">{product?.name || '—'}</p>
+        {productCanDelete ? null : <p className="mt-0.5 text-xs text-amber-700">لا يمكن حذف المنتج لوجود حركات مخزون.</p>}
+      </td>
+
+      <td className="px-4 py-3">
+        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+          {categoryName}
+        </span>
+      </td>
+
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap gap-1.5">
+          {variants.map((variant) => (
+            <VariantBadge
+              key={variant.id}
+              variant={variant}
+              onEdit={() => onEditVariant(variant)}
+              onDelete={() => onDeleteVariant(variant)}
+            />
+          ))}
+
+          <button
+            type="button"
+            onClick={onAddVariant}
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2 py-0.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+          >
+            <Plus className="h-3 w-3" />
+            حجم
+          </button>
+        </div>
+      </td>
+
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600"
+            title="تعديل المنتج"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={!productCanDelete}
+            className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+            title="حذف المنتج"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export default function ProductsPage() {
   const queryClient = useQueryClient();
+  const store = useAuthStore((state) => state.store);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
-  const [expandedProducts, setExpandedProducts] = useState({});
 
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isVariantModalOpen, setIsVariantModalOpen] = useState(false);
@@ -109,6 +272,7 @@ export default function ProductsPage() {
   const [editingVariant, setEditingVariant] = useState(null);
   const [deletingProduct, setDeletingProduct] = useState(null);
   const [deletingVariant, setDeletingVariant] = useState(null);
+  const currentStoreId = Number(store?.id ?? store?.store_id ?? 0) || undefined;
 
   const {
     register: registerProduct,
@@ -143,12 +307,15 @@ export default function ProductsPage() {
   }, [searchTerm, selectedCategory]);
 
   const productsQuery = useQuery({
-    queryKey: ['products', currentPage, searchTerm, selectedCategory],
-    queryFn: () =>
-      getProducts(currentPage, {
-        search: searchTerm || undefined,
-        category_id: selectedCategory || undefined,
-      }),
+    queryKey: ['products', currentStoreId, currentPage, searchTerm, selectedCategory],
+    queryFn: async () =>
+      normalizePaginatedResponse(
+        await getProducts(currentPage, {
+          store_id: currentStoreId,
+          search: searchTerm || undefined,
+          category_id: selectedCategory || undefined,
+        })
+      ),
     keepPreviousData: true,
   });
 
@@ -240,23 +407,11 @@ export default function ProductsPage() {
   });
 
   const categories = extractCategoryItems(categoriesQuery.data);
-  const products = useMemo(() => extractProducts(productsQuery.data), [productsQuery.data]);
-
-  useEffect(() => {
-    setExpandedProducts((previous) => {
-      const next = { ...previous };
-      products.forEach((product) => {
-        if (typeof next[product.id] === 'undefined') {
-          next[product.id] = true;
-        }
-      });
-      return next;
-    });
-  }, [products]);
-
-  const productsResponse = productsQuery.data?.data?.data ?? productsQuery.data?.data ?? {};
-  const total = toNumber(productsResponse?.total);
-  const lastPage = toNumber(productsResponse?.last_page) || Math.max(1, Math.ceil(total / 10));
+  const products = useMemo(() => productsQuery.data?.items || [], [productsQuery.data]);
+  const productsMeta = productsQuery.data?.meta || { page: 1, perPage: 10, total: products.length, lastPage: 1 };
+  const total = toNumber(productsMeta.total, products.length);
+  const lastPage = toNumber(productsMeta.lastPage, 1);
+  const perPage = toNumber(productsMeta.perPage, 10);
 
   const openCreateProductModal = () => {
     setEditingProduct(null);
@@ -342,13 +497,6 @@ export default function ProductsPage() {
     });
   };
 
-  const toggleExpanded = (productId) => {
-    setExpandedProducts((previous) => ({
-      ...previous,
-      [productId]: !previous[productId],
-    }));
-  };
-
   const handlePageChange = (nextPage) => {
     if (nextPage < 1 || nextPage > lastPage) return;
     setCurrentPage(nextPage);
@@ -393,118 +541,43 @@ export default function ProductsPage() {
         </select>
       </div>
 
-      <div className="rounded-xl border border-border bg-white">
+      <div className="overflow-hidden rounded-xl border border-border bg-white">
         {productsQuery.isLoading ? (
-          <div className="p-6">
-            <LoadingSpinner />
-          </div>
+          <ProductsTableSkeleton />
         ) : products.length === 0 ? (
-          <p className="p-6 text-center text-sm text-text-muted">لا توجد منتجات</p>
+          <div className="py-16 text-center text-text-muted">
+            <Package className="mx-auto mb-3 h-10 w-10 opacity-30" />
+            <p className="font-medium">لا توجد منتجات</p>
+            <p className="mt-1 text-xs">ابدأ بإضافة أول منتج</p>
+          </div>
         ) : (
-          <div className="divide-y divide-border">
-            {products.map((product) => {
-              const categoryName = getProductCategoryName(product, categories);
-              const variants = getProductVariants(product);
-              const isExpanded = expandedProducts[product.id] ?? true;
-              const productCanDelete = canDeleteProduct(product);
-
-              return (
-                <div key={product.id} className="p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50/70 px-3 py-2">
-                    <button
-                      type="button"
-                      className="flex items-center gap-2 text-right"
-                      onClick={() => toggleExpanded(product.id)}
-                    >
-                      {isExpanded ? <ChevronDown className="h-4 w-4 text-text-muted" /> : <ChevronLeft className="h-4 w-4 text-text-muted" />}
-                      <div>
-                        <p className="font-semibold text-text">{product?.name || '—'}</p>
-                        <p className="text-xs text-text-muted">{categoryName}</p>
-                      </div>
-                    </button>
-
-                    <div className="flex items-center gap-2">
-                      <Button type="button" variant="outline" className="h-8 px-3" onClick={() => openEditProductModal(product)}>
-                        تعديل
-                      </Button>
-                      <Button type="button" variant="outline" className="h-8 px-3" onClick={() => openAddVariantModal(product)}>
-                        + حجم
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-8 px-3 text-red-600"
-                        onClick={() => setDeletingProduct(product)}
-                        disabled={!productCanDelete}
-                      >
-                        حذف
-                      </Button>
-                    </div>
-                  </div>
-
-                  {!productCanDelete ? (
-                    <p className="mt-2 text-xs text-amber-700">لا يمكن حذف المنتج لأن بعض الأحجام لها حركات مخزون.</p>
-                  ) : null}
-
-                  {isExpanded ? (
-                    <div className="mr-5 mt-3 space-y-2 border-r border-border pr-4">
-                      {variants.length === 0 ? (
-                        <p className="text-sm text-text-muted">لا توجد أحجام لهذا المنتج.</p>
-                      ) : (
-                        variants.map((variant) => {
-                          const lowStock = isVariantLowStock(variant);
-                          const stock = toNumber(variant?.current_stock);
-                          return (
-                            <div
-                              key={variant.id}
-                              className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2 ${
-                                lowStock ? 'border-amber-200 bg-amber-50' : 'border-border bg-white'
-                              }`}
-                            >
-                              <div>
-                                <div className="font-medium text-text">{variant?.name || '—'}</div>
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-4 text-sm">
-                                <span className="font-semibold text-text">{formatCurrency(toNumber(variant?.sale_price))}</span>
-                                <span className="text-text-muted">{stock.toLocaleString('ar-EG')} قطعة</span>
-                                {lowStock ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
-                                    <AlertTriangle className="h-3.5 w-3.5" />
-                                    ⚠️ منخفض
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">✅</span>
-                                )}
-
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => openEditVariantModal(product, variant)}
-                                    className="rounded-md p-2 text-blue-600 hover:bg-blue-50"
-                                    title="تعديل"
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setDeletingVariant({ product, variant })}
-                                    className="rounded-md p-2 text-red-600 hover:bg-red-50"
-                                    title="حذف"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-border bg-slate-50">
+                <tr>
+                  <th className="w-12 px-4 py-3 text-right text-xs font-medium text-text-muted">#</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">المنتج</th>
+                  <th className="w-32 px-4 py-3 text-right text-xs font-medium text-text-muted">التصنيف</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">الأحجام والمخزون</th>
+                  <th className="w-32 px-4 py-3 text-right text-xs font-medium text-text-muted">الإجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((product, index) => (
+                  <ProductRow
+                    key={product.id}
+                    product={product}
+                    rowNumber={(currentPage - 1) * perPage + index + 1}
+                    categoryName={getProductCategoryName(product, categories)}
+                    onEdit={() => openEditProductModal(product)}
+                    onDelete={() => setDeletingProduct(product)}
+                    onAddVariant={() => openAddVariantModal(product)}
+                    onEditVariant={(variant) => openEditVariantModal(product, variant)}
+                    onDeleteVariant={(variant) => setDeletingVariant({ product, variant })}
+                  />
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

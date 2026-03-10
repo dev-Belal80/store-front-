@@ -264,7 +264,9 @@ function TableSkeletonRows() {
 export default function StoreDashboardPage() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const store = useAuthStore((state) => state.store);
   const [stockAlertTab, setStockAlertTab] = useState('low');
+  const currentStoreId = Number(store?.id ?? store?.store_id ?? 0) || undefined;
   const { today, weekAgo, monthStart } = useMemo(() => getDailyRange(), []);
 
   const cashQ = useQuery({
@@ -300,12 +302,12 @@ export default function StoreDashboardPage() {
     queryFn: () => getCustomers(1, { per_page: 200 }),
   });
   const lowStockQ = useQuery({
-    queryKey: ['dash-low-stock'],
-    queryFn: () => getProducts(1, { low_stock: 1, per_page: 50 }),
+    queryKey: ['dash-low-stock', currentStoreId],
+    queryFn: () => getProducts(1, { store_id: currentStoreId, low_stock: 1, per_page: 50 }),
   });
   const deficitsQ = useQuery({
-    queryKey: ['dash-deficits'],
-    queryFn: getInventoryDeficits,
+    queryKey: ['dash-deficits', currentStoreId],
+    queryFn: () => getInventoryDeficits({ store_id: currentStoreId }),
   });
 
   const greetingDate = useMemo(
