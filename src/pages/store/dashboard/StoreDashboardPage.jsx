@@ -236,9 +236,9 @@ function StatsMiniCard({ title, value, subtitle, icon: Icon, colorClass, onClick
 
 function ChartContainer({ title, children, isLoading }) {
   return (
-    <div className="rounded-xl border border-border bg-white p-4">
+    <div className="min-w-0 rounded-xl border border-border bg-white p-4">
       <h3 className="mb-3 font-semibold text-text">{title}</h3>
-      <div className="h-[280px] w-full">
+      <div className="h-[280px] w-full min-w-0">
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
             <LoadingSpinner size="sm" />
@@ -476,7 +476,7 @@ export default function StoreDashboardPage() {
 
       <div className="mb-5 grid gap-4 xl:grid-cols-3">
         <ChartContainer title="مبيعات آخر 7 أيام" isLoading={sales7Q.isLoading}>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <BarChart data={sales7Series}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" />
@@ -488,7 +488,7 @@ export default function StoreDashboardPage() {
         </ChartContainer>
 
         <ChartContainer title="مشتريات آخر 7 أيام" isLoading={pur7Q.isLoading}>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <BarChart data={purchases7Series}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" />
@@ -505,7 +505,7 @@ export default function StoreDashboardPage() {
               سيتوفر هذا التقرير قريباً
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <PieChart>
                 <Pie
                   data={pieCategory.data}
@@ -533,9 +533,9 @@ export default function StoreDashboardPage() {
       </div>
 
       <div className="mb-5 grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2">
+        <div className="min-w-0 xl:col-span-2">
           <ChartContainer title="مقارنة المبيعات والمشتريات" isLoading={sales7Q.isLoading || pur7Q.isLoading}>
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <LineChart data={compareSeries}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" />

@@ -86,9 +86,9 @@ export default function StoreLayout() {
         onClose={() => setIsSidebarOpen(false)}
       />
 
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <Topbar title={title} onMenuClick={() => setIsSidebarOpen(true)} />
-        <main className="flex-1 p-4 lg:p-6">
+        <main className="min-w-0 flex-1 p-4 lg:p-6">
           <Outlet />
         </main>
       </div>
