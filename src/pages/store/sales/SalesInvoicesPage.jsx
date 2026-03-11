@@ -27,6 +27,7 @@ import {
 import { Input } from '../../../components/ui/input';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { normalizePaginatedResponse } from '../../../utils/pagination';
+import SalesReturnsTab from './SalesReturnsTab';
 
 const customerReceiptSchema = z.object({
   party_id: z.coerce.number().min(1, 'العميل مطلوب'),
@@ -116,6 +117,7 @@ const getStatusOptions = () => [
 
 export default function SalesInvoicesPage() {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('invoices');
   const [currentPage, setCurrentPage] = useState(1);
   const [filters, setFilters] = useState({
     customer_id: '',
@@ -359,28 +361,50 @@ export default function SalesInvoicesPage() {
         title="فواتير البيع"
         subtitle="إدارة ومراجعة فواتير البيع"
         actions={
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex items-center gap-2"
-              onClick={() => setIsReceiptModalOpen(true)}
-            >
-              <HandCoins className="h-4 w-4" />
-              <span>تحصيل من عميل</span>
-            </Button>
-
-            <Link to="/store/sales-invoices/create">
-              <Button type="button" className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                <span>فاتورة جديدة</span>
+          activeTab === 'invoices' ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex items-center gap-2"
+                onClick={() => setIsReceiptModalOpen(true)}
+              >
+                <HandCoins className="h-4 w-4" />
+                <span>تحصيل من عميل</span>
               </Button>
-            </Link>
-          </div>
+
+              <Link to="/store/sales-invoices/create">
+                <Button type="button" className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  <span>فاتورة جديدة</span>
+                </Button>
+              </Link>
+            </div>
+          ) : null
         }
       />
 
-      <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-4">
+      <div className="mb-4 flex w-fit overflow-hidden rounded-lg border border-border">
+        {[
+          { key: 'invoices', label: 'فواتير البيع' },
+          { key: 'returns', label: 'مرتجعات البيع' },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`border-l border-border px-4 py-2 text-sm font-medium transition-colors first:border-l-0 ${
+              activeTab === tab.key ? 'bg-primary text-white' : 'bg-white text-text hover:bg-slate-50'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'invoices' ? (
+        <>
+          <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-4">
         <select
           value={filters.customer_id}
           onChange={(event) => {
@@ -433,85 +457,85 @@ export default function SalesInvoicesPage() {
         />
       </div>
 
-      {salesInvoicesQuery.isLoading ? (
-        <LoadingSpinner />
-      ) : (
-        <DataTable
-          columns={columns}
-          data={invoices}
-          loading={salesInvoicesQuery.isFetching}
-          emptyMessage="لا توجد فواتير بيع"
-        />
-      )}
-
-      <Pagination
-        currentPage={meta.page}
-        lastPage={meta.lastPage}
-        total={meta.total}
-        perPage={meta.perPage}
-        itemLabel="فاتورة"
-        onPageChange={(nextPage) => {
-          if (nextPage < 1 || nextPage > meta.lastPage) return;
-          setCurrentPage(nextPage);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-        isLoading={salesInvoicesQuery.isFetching}
-      />
-
-      <Dialog open={Boolean(detailsInvoiceId)} onOpenChange={(open) => (!open ? setDetailsInvoiceId(null) : null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>تفاصيل فاتورة البيع</DialogTitle>
-            <DialogDescription>
-              {invoiceDetailsQuery.isLoading
-                ? 'جاري تحميل التفاصيل...'
-                : `رقم الفاتورة: ${detailsInvoice?.invoice_number || detailsInvoiceId || '—'}`}
-            </DialogDescription>
-          </DialogHeader>
-
-          {invoiceDetailsQuery.isLoading ? (
+          {salesInvoicesQuery.isLoading ? (
             <LoadingSpinner />
           ) : (
-            <div className="space-y-4">
-              <div className="rounded-lg border border-border bg-slate-50 p-3 text-sm text-text-muted">
-                <div>العميل: {detailsInvoice?.customer?.name || detailsInvoice?.customer_name || '—'}</div>
-                <div>الحالة: {detailsInvoice?.status || '—'}</div>
-                <div>الإجمالي: {formatCurrency(detailsInvoice?.total_amount || detailsInvoice?.total || 0)}</div>
-                <div>المدفوع: {formatCurrency(detailsInvoice?.paid_amount || 0)}</div>
-                <div>المتبقي: {formatCurrency(detailsInvoice?.remaining_amount || 0)}</div>
-              </div>
-
-              <DataTable columns={detailsColumns} data={detailItems} loading={false} emptyMessage="لا توجد بنود" />
-            </div>
+            <DataTable
+              columns={columns}
+              data={invoices}
+              loading={salesInvoicesQuery.isFetching}
+              emptyMessage="لا توجد فواتير بيع"
+            />
           )}
-        </DialogContent>
-      </Dialog>
 
-      <Dialog
-        open={isReceiptModalOpen}
-        onOpenChange={(open) => {
-          setIsReceiptModalOpen(open);
+          <Pagination
+            currentPage={meta.page}
+            lastPage={meta.lastPage}
+            total={meta.total}
+            perPage={meta.perPage}
+            itemLabel="فاتورة"
+            onPageChange={(nextPage) => {
+              if (nextPage < 1 || nextPage > meta.lastPage) return;
+              setCurrentPage(nextPage);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            isLoading={salesInvoicesQuery.isFetching}
+          />
 
-          if (!open) {
-            setReceiptSearchTerm('');
-            setDebouncedReceiptSearchTerm('');
-            resetReceiptForm({
-              party_id: 0,
-              amount: '',
-              notes: '',
-              date: getTodayDate(),
-            });
-          }
-        }}
-      >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <HandCoins className="h-5 w-5 text-green-600" />
-              <span>سند قبض — تحصيل من عميل</span>
-            </DialogTitle>
-            <DialogDescription>سجّل تحصيل نقدي من  عميل</DialogDescription>
-          </DialogHeader>
+          <Dialog open={Boolean(detailsInvoiceId)} onOpenChange={(open) => (!open ? setDetailsInvoiceId(null) : null)}>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>تفاصيل فاتورة البيع</DialogTitle>
+                <DialogDescription>
+                  {invoiceDetailsQuery.isLoading
+                    ? 'جاري تحميل التفاصيل...'
+                    : `رقم الفاتورة: ${detailsInvoice?.invoice_number || detailsInvoiceId || '—'}`}
+                </DialogDescription>
+              </DialogHeader>
+
+              {invoiceDetailsQuery.isLoading ? (
+                <LoadingSpinner />
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-border bg-slate-50 p-3 text-sm text-text-muted">
+                    <div>العميل: {detailsInvoice?.customer?.name || detailsInvoice?.customer_name || '—'}</div>
+                    <div>الحالة: {detailsInvoice?.status || '—'}</div>
+                    <div>الإجمالي: {formatCurrency(detailsInvoice?.total_amount || detailsInvoice?.total || 0)}</div>
+                    <div>المدفوع: {formatCurrency(detailsInvoice?.paid_amount || 0)}</div>
+                    <div>المتبقي: {formatCurrency(detailsInvoice?.remaining_amount || 0)}</div>
+                  </div>
+
+                  <DataTable columns={detailsColumns} data={detailItems} loading={false} emptyMessage="لا توجد بنود" />
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={isReceiptModalOpen}
+            onOpenChange={(open) => {
+              setIsReceiptModalOpen(open);
+
+              if (!open) {
+                setReceiptSearchTerm('');
+                setDebouncedReceiptSearchTerm('');
+                resetReceiptForm({
+                  party_id: 0,
+                  amount: '',
+                  notes: '',
+                  date: getTodayDate(),
+                });
+              }
+            }}
+          >
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <HandCoins className="h-5 w-5 text-green-600" />
+                  <span>سند قبض — تحصيل من عميل</span>
+                </DialogTitle>
+                <DialogDescription>سجّل تحصيل نقدي من  عميل</DialogDescription>
+              </DialogHeader>
 
           <form onSubmit={handleReceiptSubmit(onSubmitCustomerReceipt)} className="space-y-4">
             <div className="space-y-2">
@@ -589,24 +613,24 @@ export default function SalesInvoicesPage() {
               </Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+            </DialogContent>
+          </Dialog>
 
-      <Dialog
-        open={Boolean(cancelInvoice)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setCancelInvoice(null);
-            setCancelReason('');
-            setCancelReasonError('');
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>إلغاء الفاتورة رقم {cancelInvoice?.invoice_number || `INV-${cancelInvoice?.id || ''}`}</DialogTitle>
-            <DialogDescription>سيتم عكس المخزون والقيود المالية</DialogDescription>
-          </DialogHeader>
+          <Dialog
+            open={Boolean(cancelInvoice)}
+            onOpenChange={(open) => {
+              if (!open) {
+                setCancelInvoice(null);
+                setCancelReason('');
+                setCancelReasonError('');
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>إلغاء الفاتورة رقم {cancelInvoice?.invoice_number || `INV-${cancelInvoice?.id || ''}`}</DialogTitle>
+                <DialogDescription>سيتم عكس المخزون والقيود المالية</DialogDescription>
+              </DialogHeader>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-text">سبب الإلغاء *</label>
@@ -646,8 +670,12 @@ export default function SalesInvoicesPage() {
               {cancelMutation.isPending ? 'جاري التنفيذ...' : 'تأكيد الإلغاء'}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </DialogContent>
+          </Dialog>
+        </>
+      ) : (
+        <SalesReturnsTab />
+      )}
     </div>
   );
 }

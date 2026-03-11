@@ -11,6 +11,18 @@ export const getPurchaseInvoices = (page = 1, filters = {}) =>
 export const createPurchaseInvoice = (data) => axios.post('/store/purchase-invoices', data);
 export const getPurchaseInvoice = (id) => axios.get(`/store/purchase-invoices/${id}`);
 export const cancelPurchaseInvoice = (id, data) => axios.post(`/store/purchase-invoices/${id}/cancel`, data);
+export const searchPurchaseInvoices = (search = '', filters = {}) =>
+	axios.get('/store/purchase-invoices', {
+		params: {
+			search,
+			per_page: 20,
+			...filters,
+		},
+	});
+
+export const getPurchaseReturns = () => axios.get('/store/purchase-returns');
+export const createPurchaseReturn = (data) => axios.post('/store/purchase-returns', data);
+
 export const uploadPurchaseInvoiceAttachment = (id, formData, config = {}) =>
 	axios.post(`/store/purchase-invoices/${id}/attachment`, formData, {
 		headers: {

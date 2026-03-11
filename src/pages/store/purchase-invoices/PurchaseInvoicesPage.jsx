@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '../../../components/ui/input';
 import { formatCurrency, formatDate } from '../../../utils/formatters';
 import { normalizePaginatedResponse } from '../../../utils/pagination';
+import PurchaseReturnsTab from './PurchaseReturnsTab';
 
 const supplierPaymentSchema = z.object({
   party_id: z.coerce.number().min(1, 'المورد مطلوب'),
@@ -96,6 +97,7 @@ const normalizeList = (response) => {
 
 export default function PurchaseInvoicesPage() {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('invoices');
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -281,28 +283,50 @@ export default function PurchaseInvoicesPage() {
         title="فواتير الشراء"
         subtitle="إدارة ومراجعة فواتير الشراء"
         actions={
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex items-center gap-2"
-              onClick={() => setIsSupplierPaymentModalOpen(true)}
-            >
-              <BanknoteArrowDown className="h-4 w-4" />
-              <span>سند صرف لمورد</span>
-            </Button>
-
-            <Link to="/store/purchase-invoices/create">
-              <Button type="button" className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                <span>إضافة فاتورة شراء</span>
+          activeTab === 'invoices' ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex items-center gap-2"
+                onClick={() => setIsSupplierPaymentModalOpen(true)}
+              >
+                <BanknoteArrowDown className="h-4 w-4" />
+                <span>سند صرف لمورد</span>
               </Button>
-            </Link>
-          </div>
+
+              <Link to="/store/purchase-invoices/create">
+                <Button type="button" className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  <span>إضافة فاتورة شراء</span>
+                </Button>
+              </Link>
+            </div>
+          ) : null
         }
       />
 
-      <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-3">
+      <div className="mb-4 flex w-fit overflow-hidden rounded-lg border border-border">
+        {[
+          { key: 'invoices', label: 'فواتير الشراء' },
+          { key: 'returns', label: 'مرتجعات الشراء' },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`border-l border-border px-4 py-2 text-sm font-medium transition-colors first:border-l-0 ${
+              activeTab === tab.key ? 'bg-primary text-white' : 'bg-white text-text hover:bg-slate-50'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'invoices' ? (
+        <>
+          <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-3">
         <div className="relative md:col-span-2">
           <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
           <Input
@@ -330,51 +354,51 @@ export default function PurchaseInvoicesPage() {
         </select>
       </div>
 
-      {purchaseInvoicesQuery.isLoading ? (
-        <LoadingSpinner />
-      ) : (
-        <DataTable columns={columns} data={invoices} loading={purchaseInvoicesQuery.isFetching} emptyMessage="لا توجد فواتير شراء" />
-      )}
+          {purchaseInvoicesQuery.isLoading ? (
+            <LoadingSpinner />
+          ) : (
+            <DataTable columns={columns} data={invoices} loading={purchaseInvoicesQuery.isFetching} emptyMessage="لا توجد فواتير شراء" />
+          )}
 
-      <Pagination
-        currentPage={meta.page}
-        lastPage={meta.lastPage}
-        total={meta.total}
-        perPage={meta.perPage}
-        itemLabel="فاتورة"
-        onPageChange={(nextPage) => {
-          if (nextPage < 1 || nextPage > meta.lastPage) return;
-          setCurrentPage(nextPage);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-        isLoading={purchaseInvoicesQuery.isFetching}
-      />
+          <Pagination
+            currentPage={meta.page}
+            lastPage={meta.lastPage}
+            total={meta.total}
+            perPage={meta.perPage}
+            itemLabel="فاتورة"
+            onPageChange={(nextPage) => {
+              if (nextPage < 1 || nextPage > meta.lastPage) return;
+              setCurrentPage(nextPage);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            isLoading={purchaseInvoicesQuery.isFetching}
+          />
 
-      <Dialog
-        open={isSupplierPaymentModalOpen}
-        onOpenChange={(open) => {
-          setIsSupplierPaymentModalOpen(open);
+          <Dialog
+            open={isSupplierPaymentModalOpen}
+            onOpenChange={(open) => {
+              setIsSupplierPaymentModalOpen(open);
 
-          if (!open) {
-            setSupplierSearchTerm('');
-            setDebouncedSupplierSearchTerm('');
-            resetSupplierPaymentForm({
-              party_id: 0,
-              amount: '',
-              notes: '',
-              date: getTodayDate(),
-            });
-          }
-        }}
-      >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <BanknoteArrowDown className="h-5 w-5 text-amber-600" />
-              <span>سند صرف — دفع لمورد</span>
-            </DialogTitle>
-            <DialogDescription>سجّل دفعًا نقديًا للمورد</DialogDescription>
-          </DialogHeader>
+              if (!open) {
+                setSupplierSearchTerm('');
+                setDebouncedSupplierSearchTerm('');
+                resetSupplierPaymentForm({
+                  party_id: 0,
+                  amount: '',
+                  notes: '',
+                  date: getTodayDate(),
+                });
+              }
+            }}
+          >
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <BanknoteArrowDown className="h-5 w-5 text-amber-600" />
+                  <span>سند صرف — دفع لمورد</span>
+                </DialogTitle>
+                <DialogDescription>سجّل دفعًا نقديًا للمورد</DialogDescription>
+              </DialogHeader>
 
           <form onSubmit={handleSupplierPaymentSubmit(onSubmitSupplierPayment)} className="space-y-4">
             <div className="space-y-2">
@@ -458,24 +482,24 @@ export default function PurchaseInvoicesPage() {
               </Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+            </DialogContent>
+          </Dialog>
 
-      <Dialog
-        open={Boolean(cancellingInvoice)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setCancellingInvoice(null);
-            setCancelReason('');
-            setCancelReasonError('');
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>إلغاء فاتورة الشراء {cancellingInvoice?.invoice_number || `#${cancellingInvoice?.id || ''}`}</DialogTitle>
-            <DialogDescription>سيتم عكس المخزون والقيود المالية</DialogDescription>
-          </DialogHeader>
+          <Dialog
+            open={Boolean(cancellingInvoice)}
+            onOpenChange={(open) => {
+              if (!open) {
+                setCancellingInvoice(null);
+                setCancelReason('');
+                setCancelReasonError('');
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>إلغاء فاتورة الشراء {cancellingInvoice?.invoice_number || `#${cancellingInvoice?.id || ''}`}</DialogTitle>
+                <DialogDescription>سيتم عكس المخزون والقيود المالية</DialogDescription>
+              </DialogHeader>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-text">سبب الإلغاء *</label>
@@ -515,8 +539,12 @@ export default function PurchaseInvoicesPage() {
               {cancelMutation.isPending ? 'جاري التنفيذ...' : 'تأكيد الإلغاء'}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </DialogContent>
+          </Dialog>
+        </>
+      ) : (
+        <PurchaseReturnsTab />
+      )}
     </div>
   );
 }
