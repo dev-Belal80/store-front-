@@ -279,7 +279,8 @@ export default function InventoryPage() {
             <h3 className="font-bold text-amber-800">تنبيه: يوجد عجز في {deficitItems.length.toLocaleString('ar-EG')} منتج</h3>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Desktop Deficits Table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-amber-200 text-amber-700">
@@ -309,6 +310,24 @@ export default function InventoryPage() {
             </table>
           </div>
 
+          {/* Mobile Deficits Cards */}
+          <div className="block sm:hidden space-y-2">
+            {deficitItems.map((item, index) => (
+              <div key={item.variant_id || index} className="rounded-lg border border-amber-200 bg-white p-3 space-y-1">
+                <div className="font-medium text-amber-900">{item.product_name} — <span className="text-amber-700">{item.variant_name}</span></div>
+                <div className="flex justify-between items-center">
+                  <span className="font-mono font-bold text-red-600">عجز: {item.deficit.toLocaleString('ar-EG')} قطعة</span>
+                  <Link
+                    to="/store/purchase-invoices/create"
+                    className="text-xs text-amber-700 underline hover:text-amber-900"
+                  >
+                    فاتورة شراء ←
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+
           <div className="mt-3 border-t border-amber-200 pt-3">
             <Link
               to="/store/purchase-invoices/create"
@@ -321,8 +340,8 @@ export default function InventoryPage() {
         </div>
       ) : null}
 
-      <div className="no-print flex flex-wrap gap-3 rounded-xl border border-border bg-white p-3">
-        <div className="relative min-w-[220px] flex-1">
+      <div className="no-print flex flex-col sm:flex-row flex-wrap gap-3 rounded-xl border border-border bg-white p-3">
+        <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
           <input
             value={search}
@@ -335,7 +354,7 @@ export default function InventoryPage() {
         <select
           value={categoryFilter}
           onChange={(event) => setCategoryFilter(event.target.value)}
-          className="h-10 rounded-lg border border-border px-3 text-sm"
+          className="h-10 rounded-lg border border-border px-3 text-sm w-full sm:w-auto"
         >
           <option value="all">كل التصنيفات</option>
           {categories.map((category) => (
@@ -345,7 +364,7 @@ export default function InventoryPage() {
           ))}
         </select>
 
-        <div className="flex overflow-hidden rounded-lg border border-border">
+        <div className="flex overflow-hidden rounded-lg border border-border w-full sm:w-auto">
           {[
             { value: 'all', label: 'الكل', color: '' },
             { value: 'available', label: '✅ متاح', color: 'text-green-600' },
@@ -356,7 +375,7 @@ export default function InventoryPage() {
               key={tab.value}
               type="button"
               onClick={() => setStatusFilter(tab.value)}
-              className={`border-r border-border px-3 py-2 text-sm last:border-0 ${
+              className={`flex-1 sm:flex-none border-r border-border px-3 py-2 text-sm last:border-0 ${
                 statusFilter === tab.value ? 'bg-primary text-white' : `bg-white ${tab.color} hover:bg-slate-50`
               }`}
             >
@@ -373,7 +392,8 @@ export default function InventoryPage() {
       </div>
 
       <div className="rounded-xl border border-border bg-white overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Desktop Inventory Table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-border">
               <tr>
@@ -428,8 +448,51 @@ export default function InventoryPage() {
           </table>
         </div>
 
+        {/* Mobile Inventory Cards */}
+        <div className="block md:hidden divide-y divide-border">
+          {filtered.length === 0 ? (
+            <div className="py-16 text-center text-text-muted">
+              <Package className="mx-auto mb-3 h-10 w-10 opacity-30" />
+              <p>لا توجد منتجات مطابقة للبحث</p>
+            </div>
+          ) : (
+            <>
+              {filtered.map((item, index) => {
+                const bgClass = item.status === 'out' ? 'bg-red-50/60' : item.status === 'low' ? 'bg-amber-50/60' : 'bg-white';
+                return (
+                  <div key={item.variant_id || index} className={`p-4 space-y-2 ${bgClass}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="text-[11px] text-text-muted">#{index + 1}</span>
+                        <h3 className="font-bold text-text">{item.product_name}</h3>
+                        <p className="text-xs text-text-muted">{item.variant_name} — {item.category}</p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium shrink-0 ${getStatusBadge(item.status)}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${item.status === 'out' ? 'bg-red-500' : item.status === 'low' ? 'bg-amber-500' : 'bg-green-500'}`} />
+                        {getStatusLabel(item.status)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-sm pt-1 border-t border-slate-100">
+                      <div><span className="text-[11px] text-text-muted">الكمية</span><p className="font-mono font-bold text-text">{item.current_stock.toLocaleString('ar-EG')}</p></div>
+                      <div><span className="text-[11px] text-text-muted">قيمة المخزن</span><p className="font-mono text-text-muted">{formatCurrency(item.purchase_price * item.current_stock)}</p></div>
+                      <div><span className="text-[11px] text-text-muted">سعر الشراء</span><p className="font-mono text-text">{formatCurrency(item.purchase_price)}</p></div>
+                      <div><span className="text-[11px] text-text-muted">سعر البيع</span><p className="font-mono text-text">{formatCurrency(item.sale_price)}</p></div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="p-4 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-sm">
+                <span className="text-text-muted">{filtered.length} صنف — الكمية: <span className="font-mono font-bold text-text">{filteredTotalQty.toLocaleString('ar-EG')}</span></span>
+                <span className="font-mono font-bold text-primary">{formatCurrency(filteredCostValue)}</span>
+              </div>
+            </>
+          )}
+        </div>
+
         {filtered.length === 0 ? (
-          <div className="py-16 text-center text-text-muted">
+          <div className="hidden md:block py-16 text-center text-text-muted">
             <Package className="mx-auto mb-3 h-10 w-10 opacity-30" />
             <p>لا توجد منتجات مطابقة للبحث</p>
           </div>
