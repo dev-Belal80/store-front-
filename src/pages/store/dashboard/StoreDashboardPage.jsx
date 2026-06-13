@@ -207,7 +207,7 @@ const isLowStockVariant = (variant) => {
 
 function SkeletonCard() {
   return (
-    <div className="min-w-[220px] rounded-xl border border-border bg-white p-5 animate-pulse">
+    <div className="w-full rounded-xl border border-border bg-white p-5 animate-pulse">
       <div className="mb-3 h-4 w-24 rounded bg-slate-200" />
       <div className="mb-2 h-8 w-32 rounded bg-slate-200" />
       <div className="h-3 w-20 rounded bg-slate-200" />
@@ -220,16 +220,16 @@ function StatsMiniCard({ title, value, subtitle, icon: Icon, colorClass, onClick
     <button
       type="button"
       onClick={onClick}
-      className={`min-w-[220px] rounded-xl border border-border bg-white p-4 text-right ${onClick ? 'transition hover:bg-slate-50' : ''}`}
+      className={`w-full rounded-xl border border-border bg-white p-4 text-right ${onClick ? 'transition hover:bg-slate-50' : ''}`}
     >
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-text-muted">{title}</h3>
-        <span className={`inline-flex h-9 w-9 items-center justify-center rounded-full ${colorClass}`}>
+      <div className="mb-3 flex items-center justify-between gap-1">
+        <h3 className="text-sm font-medium text-text-muted truncate">{title}</h3>
+        <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${colorClass}`}>
           <Icon className="h-4 w-4 text-white" />
         </span>
       </div>
-      <p className="text-xl font-bold text-text">{value}</p>
-      {subtitle ? <p className="mt-1 text-xs text-text-muted">{subtitle}</p> : null}
+      <p className="text-xl font-bold text-text truncate">{value}</p>
+      {subtitle ? <p className="mt-1 text-xs text-text-muted truncate">{subtitle}</p> : null}
     </button>
   );
 }
@@ -420,7 +420,7 @@ export default function StoreDashboardPage() {
     <div>
       <PageHeader title="لوحة المتجر" subtitle={`${greetingLabel}، ${displayName} — ${greetingDate}`} />
 
-      <div className="mb-5 flex gap-3 overflow-x-auto pb-1">
+      <div className="mb-5 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {cardsLoading ? (
           <>
             <SkeletonCard />

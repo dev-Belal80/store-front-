@@ -284,19 +284,19 @@ export default function PurchaseInvoicesPage() {
         subtitle="إدارة ومراجعة فواتير الشراء"
         actions={
           activeTab === 'invoices' ? (
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-2 sm:flex-row w-full sm:w-auto">
               <Button
                 type="button"
                 variant="outline"
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 justify-center w-full sm:w-auto"
                 onClick={() => setIsSupplierPaymentModalOpen(true)}
               >
                 <BanknoteArrowDown className="h-4 w-4" />
                 <span>سند صرف لمورد</span>
               </Button>
 
-              <Link to="/store/purchase-invoices/create">
-                <Button type="button" className="flex items-center gap-2">
+              <Link to="/store/purchase-invoices/create" className="w-full sm:w-auto">
+                <Button type="button" className="flex items-center gap-2 justify-center w-full">
                   <Plus className="h-4 w-4" />
                   <span>إضافة فاتورة شراء</span>
                 </Button>
@@ -306,7 +306,7 @@ export default function PurchaseInvoicesPage() {
         }
       />
 
-      <div className="mb-4 flex w-fit overflow-hidden rounded-lg border border-border">
+      <div className="mb-4 flex w-full sm:w-fit overflow-hidden rounded-lg border border-border bg-white">
         {[
           { key: 'invoices', label: 'فواتير الشراء' },
           { key: 'returns', label: 'مرتجعات الشراء' },
@@ -315,8 +315,8 @@ export default function PurchaseInvoicesPage() {
             key={tab.key}
             type="button"
             onClick={() => setActiveTab(tab.key)}
-            className={`border-l border-border px-4 py-2 text-sm font-medium transition-colors first:border-l-0 ${
-              activeTab === tab.key ? 'bg-primary text-white' : 'bg-white text-text hover:bg-slate-50'
+            className={`flex-1 sm:flex-initial border-l border-border px-4 py-2 text-sm font-medium transition-colors first:border-l-0 ${
+              activeTab === tab.key ? 'bg-primary text-white' : 'text-text hover:bg-slate-50'
             }`}
           >
             {tab.label}
@@ -357,7 +357,89 @@ export default function PurchaseInvoicesPage() {
           {purchaseInvoicesQuery.isLoading ? (
             <LoadingSpinner />
           ) : (
-            <DataTable columns={columns} data={invoices} loading={purchaseInvoicesQuery.isFetching} emptyMessage="لا توجد فواتير شراء" />
+            <>
+              {/* Desktop view */}
+              <div className="hidden md:block">
+                <DataTable columns={columns} data={invoices} loading={purchaseInvoicesQuery.isFetching} emptyMessage="لا توجد فواتير شراء" />
+              </div>
+
+              {/* Mobile view */}
+              <div className="block md:hidden space-y-3">
+                {invoices.length === 0 ? (
+                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">
+                    لا توجد فواتير شراء
+                  </div>
+                ) : (
+                  invoices.map((invoice) => (
+                    <div
+                      key={invoice.id}
+                      className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-text">
+                          {getInvoiceNumber(invoice)}
+                        </span>
+                        <StatusBadge status={invoice.status || 'confirmed'} />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="text-text-muted">المورد:</div>
+                        <div className="font-medium text-text text-left">
+                          {getSupplierName(invoice)}
+                        </div>
+
+                        <div className="text-text-muted">التاريخ:</div>
+                        <div className="text-text text-left font-mono">
+                          {getInvoiceDate(invoice) ? formatDate(getInvoiceDate(invoice)) : '—'}
+                        </div>
+                      </div>
+
+                      <hr className="border-border" />
+
+                      <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                        <div className="rounded-lg bg-slate-50 p-2">
+                          <div className="text-text-muted mb-1">الإجمالي</div>
+                          <div className="font-semibold text-text">
+                            {formatCurrency(getInvoiceAmount(invoice, 'total'))}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-emerald-50/50 p-2 text-emerald-800">
+                          <div className="text-emerald-600 mb-1">المدفوع</div>
+                          <div className="font-semibold">
+                            {formatCurrency(getInvoiceAmount(invoice, 'paid'))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                        <Link
+                          to={`/store/purchase-invoices/${invoice.id}`}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors h-9"
+                        >
+                          <Eye className="h-4 w-4" />
+                          <span>عرض التفاصيل</span>
+                        </Link>
+
+                        {invoice?.status !== 'cancelled' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancellingInvoice(invoice);
+                              setCancelReason('');
+                              setCancelReasonError('');
+                            }}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors h-9"
+                          >
+                            <XCircle className="h-4 w-4" />
+                            <span>إلغاء الفاتورة</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
           )}
 
           <Pagination

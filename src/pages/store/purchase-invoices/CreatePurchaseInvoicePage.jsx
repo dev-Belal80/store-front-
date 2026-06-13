@@ -447,7 +447,7 @@ export default function CreatePurchaseInvoicePage() {
         }
       />
 
-      <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 lg:grid-cols-[1fr_320px]">
+      <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 grid-cols-1 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-white p-4">
             <div className="grid gap-4 md:grid-cols-2">
@@ -483,14 +483,14 @@ export default function CreatePurchaseInvoicePage() {
 
           <div className="overflow-hidden rounded-xl border border-border bg-white">
             <div className="border-b border-border p-3">
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex-1 min-w-0">
                   <QuickAddBar onAdd={handleQuickAdd} storeId={currentStoreId} />
                 </div>
                 <Button
                   type="button"
                   variant="outline"
-                  className="shrink-0"
+                  className="shrink-0 text-xs sm:text-sm"
                   onClick={() => {
                     append(defaultItem);
                     openCreateProductForRow(rows.length);
@@ -502,7 +502,8 @@ export default function CreatePurchaseInvoicePage() {
             </div>
 
             <div className="max-h-[380px] overflow-auto">
-              <table className="w-full text-sm">
+              {/* Desktop Table View */}
+              <table className="w-full text-sm hidden md:table">
                 <thead className="sticky top-0 z-10 bg-slate-50">
                   <tr className="border-b border-border">
                     <th className="w-8 px-3 py-2 text-right text-xs font-medium text-text-muted">#</th>
@@ -635,6 +636,123 @@ export default function CreatePurchaseInvoicePage() {
                   </tr>
                 </tfoot>
               </table>
+
+              {/* Mobile Card View */}
+              <div className="block md:hidden divide-y divide-border bg-slate-50/20">
+                {fields.map((field, index) => {
+                  const row = rows[index] || defaultItem;
+                  const selectedVariantId = Number(row.variant_id) || 0;
+                  const variant = selectedVariants[index];
+                  const stock = Number(variant?.current_stock ?? 0);
+                  const ordered = Number(row.ordered_quantity) || 0;
+                  const received = Number(row.received_quantity) || 0;
+                  const unitPrice = Number(row.unit_price) || 0;
+                  const rowTotal = received * unitPrice;
+                  const invalidReceived = received > ordered;
+
+                  return (
+                    <div
+                      key={field.id}
+                      className={`p-4 space-y-3 ${invalidReceived ? 'bg-red-50/60' : 'bg-white'}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-text-muted">البند #{index + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeRow(index)}
+                          disabled={fields.length === 1}
+                          className="rounded p-1.5 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
+                          title="حذف الصنف"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-text-muted">المنتج / الحجم</label>
+                        <SearchableSelect
+                          value={selectedVariantId || null}
+                          onChange={(id, selectedVariant) => {
+                            setValue(`items.${index}.variant_id`, id ?? 0, { shouldValidate: true, shouldDirty: true });
+                            setValue(
+                              `items.${index}.unit_price`,
+                              selectedVariant?.purchase_price ?? selectedVariant?.sale_price ?? 0,
+                              {
+                                shouldValidate: true,
+                                shouldDirty: true,
+                              }
+                            );
+                            setSelectedVariants((previous) => ({ ...previous, [index]: selectedVariant || null }));
+                          }}
+                          fetchFn={(search) => searchVariants(search, { store_id: currentStoreId })}
+                          queryKey={`purchase-variants-search-mobile-${index}`}
+                          placeholder="ابحث..."
+                          renderOption={(item) => {
+                            const currentStock = Number(item.current_stock ?? 0);
+                            return `${item.name} - ${currentStock.toLocaleString('ar-EG')} قطعة`;
+                          }}
+                          renderSelected={(item) => item.name}
+                          error={errors.items?.[index]?.variant_id?.message}
+                        />
+                        <input type="hidden" {...register(`items.${index}.variant_id`)} />
+
+                        {variant ? (
+                          <p className={`mt-1 text-[11px] ${invalidReceived ? 'text-danger' : 'text-text-muted'}`}>
+                            {invalidReceived
+                              ? `المستلم أكبر من المطلوب (${ordered.toLocaleString('ar-EG')})`
+                              : `المتاح: ${stock.toLocaleString('ar-EG')} قطعة`}
+                          </p>
+                        ) : null}
+
+                        <button
+                          type="button"
+                          className="mt-1 text-xs font-medium text-primary hover:underline text-right block"
+                          onClick={() => openCreateProductForRow(index)}
+                        >
+                          + المنتج غير موجود؟
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-text-muted">المطلوب</label>
+                          <Input type="number" min="1" step="1" {...register(`items.${index}.ordered_quantity`)} className="h-9 text-sm" />
+                          {errors.items?.[index]?.ordered_quantity ? (
+                            <p className="mt-1 text-xs text-danger">{errors.items[index].ordered_quantity.message}</p>
+                          ) : null}
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-text-muted">المستلم</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="1"
+                            {...register(`items.${index}.received_quantity`)}
+                            className={`h-9 text-sm ${invalidReceived ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                          />
+                          {errors.items?.[index]?.received_quantity ? (
+                            <p className="mt-1 text-xs text-danger">{errors.items[index].received_quantity.message}</p>
+                          ) : null}
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-text-muted">السعر</label>
+                          <Input type="number" min="0" step="0.01" {...register(`items.${index}.unit_price`)} className="h-9 text-sm" />
+                          {errors.items?.[index]?.unit_price ? (
+                            <p className="mt-1 text-xs text-danger">{errors.items[index].unit_price.message}</p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center text-sm font-semibold pt-1 border-t border-slate-50">
+                        <span className="text-text-muted text-xs">إجمالي البند:</span>
+                        <span className="font-mono text-text">{formatCurrency(rowTotal)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="border-t border-border p-3">
@@ -652,7 +770,7 @@ export default function CreatePurchaseInvoicePage() {
           </div>
         </div>
 
-        <aside className="lg:sticky lg:top-24 lg:h-fit">
+        <aside className="w-full lg:sticky lg:top-24 lg:h-fit">
           <div className="rounded-xl border border-border bg-white p-4">
             <h3 className="mb-3 text-base font-semibold text-text">ملخص الفاتورة</h3>
             <div className="mb-4 flex items-center justify-between text-sm">
@@ -660,12 +778,12 @@ export default function CreatePurchaseInvoicePage() {
               <span className="font-bold text-text">{formatCurrency(totalAmount)}</span>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={createMutation.isPending} className="flex w-full items-center gap-2">
+            <div className="flex flex-col sm:flex-row lg:flex-col gap-2">
+              <Button type="submit" disabled={createMutation.isPending} className="flex flex-1 items-center justify-center gap-2">
                 <Save className="h-4 w-4" />
                 {createMutation.isPending ? 'جاري الحفظ...' : 'حفظ فاتورة الشراء'}
               </Button>
-              <Link to="/store/purchase-invoices" className="w-full">
+              <Link to="/store/purchase-invoices" className="flex-1">
                 <Button type="button" variant="outline" className="w-full">
                   إلغاء
                 </Button>

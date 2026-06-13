@@ -19,6 +19,7 @@ const paymentSchema = z.object({
   amount: z.coerce.number().min(0.01, 'المبلغ يجب أن يكون أكبر من صفر'),
   notes: z.string().optional(),
   date: z.string().min(1, 'التاريخ مطلوب'),
+  receipt_number: z.string().optional(),
 });
 
 const getTodayDate = () => {
@@ -55,6 +56,7 @@ export default function PaymentsPage() {
       amount: '',
       notes: '',
       date: getTodayDate(),
+      receipt_number: '',
     },
   });
 
@@ -87,6 +89,7 @@ export default function PaymentsPage() {
         amount: '',
         notes: '',
         date: getTodayDate(),
+        receipt_number: '',
       });
       setSearchTerm('');
       setDebouncedSearchTerm('');
@@ -217,6 +220,14 @@ export default function PaymentsPage() {
               <Input type="date" {...register('date')} />
             </div>
           </div>
+
+          {activeTab === 'customer' ? (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">رقم فاتورة التحصيل</label>
+              <Input {...register('receipt_number')} placeholder="مثال: RCP-001" dir="ltr" />
+              <p className="text-xs text-text-muted">اختياري — رقم السند أو الإيصال الخاص بهذا التحصيل</p>
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-text">الملاحظات</label>

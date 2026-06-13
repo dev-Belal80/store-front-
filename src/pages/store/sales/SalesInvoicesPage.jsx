@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getCustomers } from '../../../api/customers';
 import { createCustomerPayment } from '../../../api/payments';
-import { cancelSalesInvoice, getSalesInvoice, getSalesInvoices } from '../../../api/salesInvoices';
+import { cancelSalesInvoice, getSalesInvoice, getSalesInvoices, getSalesRepsStats } from '../../../api/salesInvoices';
 import BalanceDisplay from '../../../components/shared/BalanceDisplay';
 import DataTable from '../../../components/shared/DataTable';
 import LoadingSpinner from '../../../components/shared/LoadingSpinner';
@@ -34,6 +34,7 @@ const customerReceiptSchema = z.object({
   amount: z.coerce.number().min(0.01, 'المبلغ يجب أن يكون أكبر من صفر'),
   notes: z.string().optional(),
   date: z.string().min(1, 'التاريخ مطلوب'),
+  receipt_number: z.string().optional(),
 });
 
 const getTodayDate = () => {
@@ -147,6 +148,7 @@ export default function SalesInvoicesPage() {
       amount: '',
       notes: '',
       date: getTodayDate(),
+      receipt_number: '',
     },
   });
 
@@ -175,6 +177,15 @@ export default function SalesInvoicesPage() {
     keepPreviousData: true,
   });
 
+  const repsStatsQuery = useQuery({
+    queryKey: ['sales-reps-stats'],
+    queryFn: async () => {
+      const res = await getSalesRepsStats();
+      return res.data || [];
+    },
+    enabled: activeTab === 'reps_stats',
+  });
+
   const invoiceDetailsQuery = useQuery({
     queryKey: ['sales-invoice-details', detailsInvoiceId],
     queryFn: async () => extractInvoicePayload(await getSalesInvoice(detailsInvoiceId)),
@@ -190,6 +201,7 @@ export default function SalesInvoicesPage() {
       setCancelReasonError('');
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
       queryClient.invalidateQueries({ queryKey: ['sales-invoice-details'] });
+      queryClient.invalidateQueries({ queryKey: ['sales-reps-stats'] });
     },
     onError: (error) => {
       const apiMessage =
@@ -213,8 +225,10 @@ export default function SalesInvoicesPage() {
         amount: '',
         notes: '',
         date: getTodayDate(),
+        receipt_number: '',
       });
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['sales-reps-stats'] });
     },
     onError: () => toast.error('تعذر حفظ سند القبض'),
   });
@@ -277,6 +291,11 @@ export default function SalesInvoicesPage() {
         render: (value) => <StatusBadge status={value || 'confirmed'} />,
       },
       {
+        key: 'sales_rep_name',
+        label: 'المندوب',
+        render: (value) => <span className="text-text-muted text-sm">{value || '—'}</span>,
+      },
+      {
         key: 'date',
         label: 'التاريخ',
         render: (value, row) => {
@@ -312,6 +331,39 @@ export default function SalesInvoicesPage() {
                 <XCircle className="h-4 w-4" />
               </button>
             ) : null}
+          </div>
+        ),
+      },
+    ],
+    []
+  );
+
+  const repColumns = useMemo(
+    () => [
+      {
+        key: 'sales_rep_name',
+        label: 'اسم المهندس / المندوب',
+        render: (value) => <span className="font-semibold text-text">{value}</span>,
+      },
+      {
+        key: 'customers_count',
+        label: 'عدد العملاء',
+        render: (value) => <span>{(value ?? 0).toLocaleString('ar-EG')}</span>,
+      },
+      {
+        key: 'sales_amount',
+        label: 'إجمالي المبيعات',
+        render: (value) => <span className="font-semibold">{formatCurrency(value ?? 0)}</span>,
+      },
+      {
+        key: 'collected_amount',
+        label: 'إجمالي التحصيلات',
+        render: (value, row) => (
+          <div className="flex flex-col">
+            <span className="font-semibold text-emerald-600">{formatCurrency(value ?? 0)}</span>
+            <span className="text-[10px] text-text-muted">
+              (منها فواتير: {formatCurrency(row.invoice_collected ?? 0)} / سندات: {formatCurrency(row.receipt_collected ?? 0)})
+            </span>
           </div>
         ),
       },
@@ -362,19 +414,19 @@ export default function SalesInvoicesPage() {
         subtitle="إدارة ومراجعة فواتير البيع"
         actions={
           activeTab === 'invoices' ? (
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-2 sm:flex-row w-full sm:w-auto">
               <Button
                 type="button"
                 variant="outline"
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 justify-center w-full sm:w-auto"
                 onClick={() => setIsReceiptModalOpen(true)}
               >
                 <HandCoins className="h-4 w-4" />
                 <span>تحصيل من عميل</span>
               </Button>
 
-              <Link to="/store/sales-invoices/create">
-                <Button type="button" className="flex items-center gap-2">
+              <Link to="/store/sales-invoices/create" className="w-full sm:w-auto">
+                <Button type="button" className="flex items-center gap-2 justify-center w-full">
                   <Plus className="h-4 w-4" />
                   <span>فاتورة جديدة</span>
                 </Button>
@@ -384,17 +436,18 @@ export default function SalesInvoicesPage() {
         }
       />
 
-      <div className="mb-4 flex w-fit overflow-hidden rounded-lg border border-border">
+      <div className="mb-4 flex w-full sm:w-fit overflow-hidden rounded-lg border border-border bg-white">
         {[
           { key: 'invoices', label: 'فواتير البيع' },
           { key: 'returns', label: 'مرتجعات البيع' },
+          { key: 'reps_stats', label: 'تقرير المهندسين / المناديب' },
         ].map((tab) => (
           <button
             key={tab.key}
             type="button"
             onClick={() => setActiveTab(tab.key)}
-            className={`border-l border-border px-4 py-2 text-sm font-medium transition-colors first:border-l-0 ${
-              activeTab === tab.key ? 'bg-primary text-white' : 'bg-white text-text hover:bg-slate-50'
+            className={`flex-1 sm:flex-initial border-l border-border px-4 py-2 text-sm font-medium transition-colors first:border-l-0 ${
+              activeTab === tab.key ? 'bg-primary text-white' : 'text-text hover:bg-slate-50'
             }`}
           >
             {tab.label}
@@ -402,7 +455,7 @@ export default function SalesInvoicesPage() {
         ))}
       </div>
 
-      {activeTab === 'invoices' ? (
+      {activeTab === 'invoices' && (
         <>
           <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-4">
         <select
@@ -460,12 +513,101 @@ export default function SalesInvoicesPage() {
           {salesInvoicesQuery.isLoading ? (
             <LoadingSpinner />
           ) : (
-            <DataTable
-              columns={columns}
-              data={invoices}
-              loading={salesInvoicesQuery.isFetching}
-              emptyMessage="لا توجد فواتير بيع"
-            />
+            <>
+              {/* Desktop view */}
+              <div className="hidden md:block">
+                <DataTable
+                  columns={columns}
+                  data={invoices}
+                  loading={salesInvoicesQuery.isFetching}
+                  emptyMessage="لا توجد فواتير بيع"
+                />
+              </div>
+
+              {/* Mobile view */}
+              <div className="block md:hidden space-y-3">
+                {invoices.length === 0 ? (
+                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">
+                    لا توجد فواتير بيع
+                  </div>
+                ) : (
+                  invoices.map((invoice) => (
+                    <div
+                      key={invoice.id}
+                      className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-text">
+                          {getInvoiceNumber(invoice)}
+                        </span>
+                        <StatusBadge status={invoice.status || 'confirmed'} />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="text-text-muted">العميل:</div>
+                        <div className="font-medium text-text text-left">
+                          {getCustomerName(invoice)}
+                        </div>
+
+                        <div className="text-text-muted">التاريخ:</div>
+                        <div className="text-text text-left font-mono">
+                          {getInvoiceDate(invoice) ? formatDate(getInvoiceDate(invoice)) : '—'}
+                        </div>
+                      </div>
+
+                      <hr className="border-border" />
+
+                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="rounded-lg bg-slate-50 p-2">
+                          <div className="text-text-muted mb-1">الإجمالي</div>
+                          <div className="font-semibold text-text">
+                            {formatCurrency(getInvoiceAmount(invoice, 'total'))}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-emerald-50/50 p-2 text-emerald-800">
+                          <div className="text-emerald-600 mb-1">المدفوع</div>
+                          <div className="font-semibold">
+                            {formatCurrency(getInvoiceAmount(invoice, 'paid'))}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-red-50/50 p-2 text-red-800">
+                          <div className="text-red-600 mb-1">المتبقي</div>
+                          <div className="font-semibold">
+                            {formatCurrency(getInvoiceAmount(invoice, 'remaining'))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => setDetailsInvoiceId(invoice.id)}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors h-9"
+                        >
+                          <Eye className="h-4 w-4" />
+                          <span>عرض التفاصيل</span>
+                        </button>
+
+                        {invoice?.status === 'confirmed' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancelInvoice(invoice);
+                              setCancelReason('');
+                              setCancelReasonError('');
+                            }}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors h-9"
+                          >
+                            <XCircle className="h-4 w-4" />
+                            <span>إلغاء الفاتورة</span>
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
           )}
 
           <Pagination
@@ -483,7 +625,7 @@ export default function SalesInvoicesPage() {
           />
 
           <Dialog open={Boolean(detailsInvoiceId)} onOpenChange={(open) => (!open ? setDetailsInvoiceId(null) : null)}>
-            <DialogContent className="max-w-3xl">
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>تفاصيل فاتورة البيع</DialogTitle>
                 <DialogDescription>
@@ -497,15 +639,42 @@ export default function SalesInvoicesPage() {
                 <LoadingSpinner />
               ) : (
                 <div className="space-y-4">
-                  <div className="rounded-lg border border-border bg-slate-50 p-3 text-sm text-text-muted">
-                    <div>العميل: {detailsInvoice?.customer?.name || detailsInvoice?.customer_name || '—'}</div>
-                    <div>الحالة: {detailsInvoice?.status || '—'}</div>
-                    <div>الإجمالي: {formatCurrency(detailsInvoice?.total_amount || detailsInvoice?.total || 0)}</div>
-                    <div>المدفوع: {formatCurrency(detailsInvoice?.paid_amount || 0)}</div>
-                    <div>المتبقي: {formatCurrency(detailsInvoice?.remaining_amount || 0)}</div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 rounded-lg border border-border bg-slate-50 p-4 text-sm text-text-muted">
+                    <div>العميل: <span className="font-semibold text-text">{detailsInvoice?.customer?.name || detailsInvoice?.customer_name || '—'}</span></div>
+                    <div className="flex items-center gap-1.5">الحالة: <StatusBadge status={detailsInvoice?.status || 'confirmed'} /></div>
+                    <div>الإجمالي: <span className="font-semibold text-text">{formatCurrency(detailsInvoice?.total_amount || detailsInvoice?.total || 0)}</span></div>
+                    <div>المدفوع: <span className="font-semibold text-emerald-600">{formatCurrency(detailsInvoice?.paid_amount || 0)}</span></div>
+                    <div>المتبقي: <span className="font-semibold text-danger">{formatCurrency(detailsInvoice?.remaining_amount || 0)}</span></div>
+                    {detailsInvoice?.sales_rep_name ? (
+                      <div>المندوب: <span className="font-semibold text-text">{detailsInvoice.sales_rep_name}</span></div>
+                    ) : null}
                   </div>
 
-                  <DataTable columns={detailsColumns} data={detailItems} loading={false} emptyMessage="لا توجد بنود" />
+                  {/* Desktop Items Table */}
+                  <div className="hidden sm:block">
+                    <DataTable columns={detailsColumns} data={detailItems} loading={false} emptyMessage="لا توجد بنود" />
+                  </div>
+
+                  {/* Mobile Items List */}
+                  <div className="block sm:hidden space-y-2">
+                    <div className="text-xs font-semibold text-text-muted mb-1">البنود:</div>
+                    {detailItems.length === 0 ? (
+                      <div className="text-center py-4 text-xs text-text-muted border border-dashed rounded-lg bg-white">لا توجد بنود</div>
+                    ) : (
+                      detailItems.map((item, index) => (
+                        <div key={index} className="rounded-lg border border-border bg-white p-3 space-y-1.5 text-xs shadow-sm">
+                          <div className="flex justify-between font-semibold">
+                            <span>{item?.product?.name || item?.product_name || '—'}</span>
+                            <span>{formatCurrency((Number(item?.quantity) || 0) * (Number(item?.unit_price) || 0))}</span>
+                          </div>
+                          <div className="flex justify-between text-text-muted">
+                            <span>الكمية: {Number(item?.quantity ?? 0).toLocaleString('ar-EG')}</span>
+                            <span>السعر: {formatCurrency(item?.unit_price ?? 0)}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
             </DialogContent>
@@ -524,6 +693,7 @@ export default function SalesInvoicesPage() {
                   amount: '',
                   notes: '',
                   date: getTodayDate(),
+                  receipt_number: '',
                 });
               }
             }}
@@ -591,6 +761,12 @@ export default function SalesInvoicesPage() {
                 <Input type="date" {...registerReceipt('date')} />
                 {receiptErrors.date ? <p className="text-sm text-danger">{receiptErrors.date.message}</p> : null}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-text">رقم فاتورة التحصيل</label>
+              <Input {...registerReceipt('receipt_number')} placeholder="مثال: RCP-001" dir="ltr" />
+              <p className="text-xs text-text-muted">اختياري — رقم السند أو الإيصال</p>
             </div>
 
             <div className="space-y-2">
@@ -673,8 +849,73 @@ export default function SalesInvoicesPage() {
             </DialogContent>
           </Dialog>
         </>
-      ) : (
+      )}
+
+      {activeTab === 'returns' && (
         <SalesReturnsTab />
+      )}
+
+      {activeTab === 'reps_stats' && (
+        <div className="space-y-4">
+          {repsStatsQuery.isLoading ? (
+            <LoadingSpinner />
+          ) : (
+            <>
+              {/* Desktop view */}
+              <div className="hidden md:block">
+                <DataTable
+                  columns={repColumns}
+                  data={repsStatsQuery.data || []}
+                  loading={repsStatsQuery.isFetching}
+                  emptyMessage="لا توجد بيانات للمهندسين أو المناديب"
+                />
+              </div>
+
+              {/* Mobile view */}
+              <div className="block md:hidden space-y-3">
+                {(repsStatsQuery.data || []).length === 0 ? (
+                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">
+                    لا توجد بيانات للمهندسين أو المناديب
+                  </div>
+                ) : (
+                  (repsStatsQuery.data || []).map((rep, index) => (
+                    <div
+                      key={index}
+                      className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-text">
+                          {rep.sales_rep_name}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="text-text-muted">عدد العملاء:</div>
+                        <div className="font-medium text-text text-left">
+                          {(rep.customers_count ?? 0).toLocaleString('ar-EG')}
+                        </div>
+
+                        <div className="text-text-muted">إجمالي المبيعات:</div>
+                        <div className="font-medium text-text text-left font-mono">
+                          {formatCurrency(rep.sales_amount ?? 0)}
+                        </div>
+
+                        <div className="text-text-muted">إجمالي التحصيلات:</div>
+                        <div className="font-medium text-emerald-600 text-left font-mono">
+                          {formatCurrency(rep.collected_amount ?? 0)}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg bg-slate-50 p-2 text-center text-[10px] text-text-muted">
+                        منها فواتير: {formatCurrency(rep.invoice_collected ?? 0)} | سندات: {formatCurrency(rep.receipt_collected ?? 0)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

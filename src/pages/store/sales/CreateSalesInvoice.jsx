@@ -35,6 +35,7 @@ const salesInvoiceSchema = z.object({
   paid_amount: z.coerce.number().min(0, 'المبلغ المدفوع غير صحيح'),
   discount_amount: z.coerce.number().min(0, 'الخصم غير صحيح').default(0),
   notes: z.string().optional(),
+  sales_rep_name: z.string().optional(),
   items: z.array(itemSchema).min(1, 'أضف بندًا واحدًا على الأقل'),
 });
 
@@ -185,6 +186,7 @@ export default function CreateSalesInvoice() {
       paid_amount: 0,
       discount_amount: 0,
       notes: '',
+      sales_rep_name: '',
       items: [defaultItem],
     },
   });
@@ -273,6 +275,7 @@ export default function CreateSalesInvoice() {
       paid_amount: Number(values.paid_amount) || 0,
       discount_amount: Number(values.discount_amount) || 0,
       notes: values.notes?.trim() || '',
+      sales_rep_name: values.sales_rep_name?.trim() || undefined,
       items: values.items.map((item) => ({
         variant_id: Number(item.variant_id),
         quantity: Math.max(Number(item.quantity) || 1, 1),
@@ -412,6 +415,12 @@ export default function CreateSalesInvoice() {
               </div>
 
               <div className="space-y-2">
+                <label className="text-sm font-medium text-text">اسم المهندس / المندوب</label>
+                <Input {...register('sales_rep_name')} placeholder="مثال: احمد محمود" />
+                <p className="text-xs text-text-muted">اختياري — اسم المهندس أو المندوب المسؤول عن هذا البيع</p>
+              </div>
+
+              <div className="space-y-2">
                 <label className="text-sm font-medium text-text">ملاحظات</label>
                 <textarea
                   {...register('notes')}
@@ -429,7 +438,8 @@ export default function CreateSalesInvoice() {
             </div>
 
             <div className="max-h-[380px] overflow-auto">
-              <table className="w-full text-sm">
+              {/* Desktop Table View */}
+              <table className="w-full text-sm hidden md:table">
                 <thead className="sticky top-0 z-10 bg-slate-50">
                   <tr className="border-b border-border">
                     <th className="w-8 px-3 py-2 text-right text-xs font-medium text-text-muted">#</th>
@@ -549,6 +559,110 @@ export default function CreateSalesInvoice() {
                   </tr>
                 </tfoot>
               </table>
+
+              {/* Mobile Card View */}
+              <div className="block md:hidden divide-y divide-border bg-slate-50/20">
+                {fields.map((field, index) => {
+                  const row = rows[index] || defaultItem;
+                  const selectedVariantId = Number(row.variant_id) || 0;
+                  const variant = selectedVariants[index];
+                  const stock = Number(variant?.current_stock ?? 0);
+                  const quantity = Math.max(Number(row.quantity) || 1, 1);
+                  const rowUnitPrice = Number(row.unit_price) || 0;
+                  const rowTotal = quantity * rowUnitPrice;
+                  const invalidStock = stockViolations[index];
+                  const isCurrentDeficit = stock < 0;
+                  const deficitQty = Math.max(quantity - stock, 0);
+
+                  return (
+                    <div
+                      key={field.id}
+                      className={`p-4 space-y-3 ${invalidStock ? 'bg-amber-50/60' : 'bg-white'}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-text-muted">البند #{index + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeRow(index)}
+                          disabled={fields.length === 1}
+                          className="rounded p-1.5 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
+                          title="حذف البند"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-text-muted">المنتج / الحجم</label>
+                        <SearchableSelect
+                          value={selectedVariantId || null}
+                          onChange={(id, selectedVariant) => {
+                            setValue(`items.${index}.variant_id`, id ?? 0, { shouldValidate: true, shouldDirty: true });
+                            setValue(`items.${index}.unit_price`, selectedVariant?.sale_price ?? 0, {
+                              shouldValidate: true,
+                              shouldDirty: true,
+                            });
+                            setSelectedVariants((previous) => ({ ...previous, [index]: selectedVariant || null }));
+                          }}
+                          fetchFn={(search) => searchVariants(search, { store_id: currentStoreId })}
+                          queryKey={`variants-search-mobile-${index}`}
+                          placeholder="ابحث..."
+                          renderOption={(item) => {
+                            const currentStock = Number(item.current_stock ?? 0);
+                            return `${item.name} - ${currentStock.toLocaleString('ar-EG')} قطعة`;
+                          }}
+                          renderSelected={(item) => item.name}
+                          error={errors.items?.[index]?.variant_id?.message}
+                        />
+                        <input type="hidden" {...register(`items.${index}.variant_id`)} />
+
+                        {variant ? (
+                          <p
+                            className={`mt-1 text-[11px] ${
+                              isCurrentDeficit ? 'font-medium text-red-600' : invalidStock ? 'text-amber-600' : 'text-text-muted'
+                            }`}
+                          >
+                            {isCurrentDeficit
+                              ? `عجز حالي: ${Math.abs(stock).toLocaleString('ar-EG')} قطعة`
+                              : invalidStock
+                              ? `سيحدث عجز ${deficitQty.toLocaleString('ar-EG')} قطعة`
+                              : `المتاح: ${stock.toLocaleString('ar-EG')} قطعة`}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-text-muted">الكمية</label>
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            {...register(`items.${index}.quantity`)}
+                            className={`h-9 text-sm ${invalidStock ? 'border-amber-500 focus-visible:ring-amber-500' : ''}`}
+                          />
+                          {errors.items?.[index]?.quantity ? (
+                            <p className="mt-1 text-xs text-danger">{errors.items[index].quantity.message}</p>
+                          ) : null}
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-text-muted">السعر</label>
+                          <Input type="number" min="0" step="0.01" {...register(`items.${index}.unit_price`)} className="h-9 text-sm" />
+                          {errors.items?.[index]?.unit_price ? (
+                            <p className="mt-1 text-xs text-danger">{errors.items[index].unit_price.message}</p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center text-sm font-semibold pt-1 border-t border-slate-50">
+                        <span className="text-text-muted text-xs">إجمالي البند:</span>
+                        <span className="font-mono text-text">{formatCurrency(rowTotal)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="border-t border-border p-3">

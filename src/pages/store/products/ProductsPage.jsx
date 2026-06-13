@@ -551,34 +551,109 @@ export default function ProductsPage() {
             <p className="mt-1 text-xs">ابدأ بإضافة أول منتج</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border bg-slate-50">
-                <tr>
-                  <th className="w-12 px-4 py-3 text-right text-xs font-medium text-text-muted">#</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">المنتج</th>
-                  <th className="w-32 px-4 py-3 text-right text-xs font-medium text-text-muted">التصنيف</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">الأحجام والمخزون</th>
-                  <th className="w-32 px-4 py-3 text-right text-xs font-medium text-text-muted">الإجراءات</th>
-                </tr>
-              </thead>
-              <tbody>
-                {products.map((product, index) => (
-                  <ProductRow
-                    key={product.id}
-                    product={product}
-                    rowNumber={(currentPage - 1) * perPage + index + 1}
-                    categoryName={getProductCategoryName(product, categories)}
-                    onEdit={() => openEditProductModal(product)}
-                    onDelete={() => setDeletingProduct(product)}
-                    onAddVariant={() => openAddVariantModal(product)}
-                    onEditVariant={(variant) => openEditVariantModal(product, variant)}
-                    onDeleteVariant={(variant) => setDeletingVariant({ product, variant })}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-slate-50">
+                  <tr>
+                    <th className="w-12 px-4 py-3 text-right text-xs font-medium text-text-muted">#</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">المنتج</th>
+                    <th className="w-32 px-4 py-3 text-right text-xs font-medium text-text-muted">التصنيف</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-text-muted">الأحجام والمخزون</th>
+                    <th className="w-32 px-4 py-3 text-right text-xs font-medium text-text-muted">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map((product, index) => (
+                    <ProductRow
+                      key={product.id}
+                      product={product}
+                      rowNumber={(currentPage - 1) * perPage + index + 1}
+                      categoryName={getProductCategoryName(product, categories)}
+                      onEdit={() => openEditProductModal(product)}
+                      onDelete={() => setDeletingProduct(product)}
+                      onAddVariant={() => openAddVariantModal(product)}
+                      onEditVariant={(variant) => openEditVariantModal(product, variant)}
+                      onDeleteVariant={(variant) => setDeletingVariant({ product, variant })}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card List View */}
+            <div className="block md:hidden divide-y divide-border bg-slate-50/20">
+              {products.map((product, index) => {
+                const variants = getProductVariants(product);
+                const categoryName = getProductCategoryName(product, categories);
+                const productCanDelete = canDeleteProduct(product);
+                const rowNumber = (currentPage - 1) * perPage + index + 1;
+
+                return (
+                  <div key={product.id} className="p-4 space-y-3 bg-white">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="text-[11px] text-text-muted">#{rowNumber.toLocaleString('ar-EG')}</span>
+                        <h3 className="font-bold text-text text-base mt-0.5">{product?.name || '—'}</h3>
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600 mt-1">
+                          {categoryName}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openEditProductModal(product)}
+                          className="rounded-lg p-2 text-slate-500 hover:bg-blue-50 hover:text-blue-600"
+                          title="تعديل المنتج"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingProduct(product)}
+                          disabled={!productCanDelete}
+                          className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                          title="حذف المنتج"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {!productCanDelete && (
+                      <p className="text-xs text-amber-700 bg-amber-50 rounded px-2.5 py-1">
+                        لا يمكن حذف المنتج لوجود حركات مخزون.
+                      </p>
+                    )}
+
+                    <div className="space-y-1.5 pt-1 border-t border-slate-50">
+                      <h4 className="text-xs font-medium text-text-muted">الأحجام والمخزون:</h4>
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        {variants.map((variant) => (
+                          <VariantBadge
+                            key={variant.id}
+                            variant={variant}
+                            onEdit={() => openEditVariantModal(product, variant)}
+                            onDelete={() => setDeletingVariant({ product, variant })}
+                          />
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => openAddVariantModal(product)}
+                          className="inline-flex items-center gap-1 rounded-full border border-dashed border-primary/40 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>حجم جديد</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 

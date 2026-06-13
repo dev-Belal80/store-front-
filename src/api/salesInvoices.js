@@ -22,3 +22,4 @@ export const searchSalesInvoices = (search = '', filters = {}) =>
 
 export const getSalesReturns = () => axios.get('/store/sales-returns');
 export const createSalesReturn = (data) => axios.post('/store/sales-returns', data);
+export const getSalesRepsStats = () => axios.get('/store/sales-invoices/reps-stats');
