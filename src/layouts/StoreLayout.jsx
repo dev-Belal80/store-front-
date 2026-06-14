@@ -47,6 +47,14 @@ const getPageTitle = (pathname) => {
     return 'إنشاء فاتورة بيع';
   }
 
+  if (pathname.startsWith('/store/sales-invoices/') && pathname.endsWith('/edit')) {
+    return 'تعديل فاتورة بيع';
+  }
+
+  if (pathname.startsWith('/store/purchase-invoices/') && pathname.endsWith('/edit')) {
+    return 'تعديل فاتورة شراء';
+  }
+
   if (pathname.startsWith('/store/purchase-invoices/')) {
     return 'تفاصيل فاتورة شراء';
   }

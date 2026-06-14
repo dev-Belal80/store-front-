@@ -12,8 +12,10 @@ import ProductsPage from './pages/store/products/ProductsPage';
 import CategoriesPage from './pages/store/products/CategoriesPage';
 import SalesInvoicesPage from './pages/store/sales/SalesInvoicesPage';
 import CreateSalesInvoice from './pages/store/sales/CreateSalesInvoice';
+import EditSalesInvoice from './pages/store/sales/EditSalesInvoice';
 import PurchaseInvoicesPage from './pages/store/purchase-invoices/PurchaseInvoicesPage';
 import CreatePurchaseInvoicePage from './pages/store/purchase-invoices/CreatePurchaseInvoicePage';
+import EditPurchaseInvoicePage from './pages/store/purchase-invoices/EditPurchaseInvoicePage';
 import PurchaseInvoiceDetailsPage from './pages/store/purchase-invoices/PurchaseInvoiceDetailsPage';
 import PaymentsPage from './pages/store/payments/PaymentsPage';
 import CashPage from './pages/store/cash/CashPage';
@@ -49,9 +51,11 @@ export default function App() {
               <Route path="categories" element={<CategoriesPage />} />
               <Route path="sales-invoices" element={<SalesInvoicesPage />} />
               <Route path="sales-invoices/create" element={<CreateSalesInvoice />} />
+              <Route path="sales-invoices/:id/edit" element={<EditSalesInvoice />} />
               <Route path="purchase-invoices" element={<PurchaseInvoicesPage />} />
               <Route path="purchase-invoices/create" element={<CreatePurchaseInvoicePage />} />
               <Route path="purchase-invoices/:id" element={<PurchaseInvoiceDetailsPage />} />
+              <Route path="purchase-invoices/:id/edit" element={<EditPurchaseInvoicePage />} />
               <Route path="payments" element={<PaymentsPage />} />
               <Route path="cash" element={<CashPage />} />
               <Route path="inventory" element={<InventoryPage />} />
