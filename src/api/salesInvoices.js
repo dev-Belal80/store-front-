@@ -9,6 +9,7 @@ export const getSalesInvoices = (page = 1, filters = {}) =>
 		},
 	});
 export const createSalesInvoice = (data) => axios.post('/store/sales-invoices', data);
+export const updateSalesInvoice = (id, data) => axios.put(`/store/sales-invoices/${id}`, data);
 export const getSalesInvoice = (id) => axios.get(`/store/sales-invoices/${id}`);
 export const cancelSalesInvoice = (id, data) => axios.post(`/store/sales-invoices/${id}/cancel`, data);
 export const searchSalesInvoices = (search = '', filters = {}) =>

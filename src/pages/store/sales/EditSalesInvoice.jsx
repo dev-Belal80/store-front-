@@ -8,8 +8,9 @@ import toast from 'react-hot-toast';
 import { z } from 'zod';
 import { searchCustomers } from '../../../api/customers';
 import { searchVariants } from '../../../api/products';
-import { createSalesInvoice } from '../../../api/salesInvoices';
+import { getSalesInvoice, updateSalesInvoice } from '../../../api/salesInvoices';
 import PageHeader from '../../../components/shared/PageHeader';
+import LoadingSpinner from '../../../components/shared/LoadingSpinner';
 import SearchableSelect from '../../../components/shared/SearchableSelect';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -161,7 +162,8 @@ function QuickAddBar({ onAdd, storeId }) {
   );
 }
 
-export default function CreateSalesInvoice() {
+export default function EditSalesInvoice() {
+  const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const store = useAuthStore((state) => state.store);
@@ -177,6 +179,17 @@ export default function CreateSalesInvoice() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const invoiceQuery = useQuery({
+    queryKey: ['sales-invoice', id],
+    queryFn: async () => {
+      const res = await getSalesInvoice(id);
+      return res.data?.data?.invoice || res.data?.invoice || res.data?.data || res.data;
+    },
+    enabled: Boolean(id),
+  });
+
+  const invoiceData = invoiceQuery.data;
+
   const {
     register,
     control,
@@ -185,6 +198,7 @@ export default function CreateSalesInvoice() {
     setError,
     clearErrors,
     setValue,
+    reset,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(salesInvoiceSchema),
@@ -200,13 +214,47 @@ export default function CreateSalesInvoice() {
     },
   });
 
+  useEffect(() => {
+    if (invoiceData) {
+      const items = invoiceData.items?.length > 0 ? invoiceData.items : [defaultItem];
+      reset({
+        invoice_number: invoiceData.invoice_number || '',
+        invoice_date: invoiceData.invoice_date || (invoiceData.created_at ? invoiceData.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+        customer_id: invoiceData.customer_id || 0,
+        paid_amount: invoiceData.paid_amount || 0,
+        discount_amount: invoiceData.discount_amount || 0,
+        notes: invoiceData.notes || '',
+        sales_rep_name: invoiceData.sales_rep_name || '',
+        items: items.map(item => ({
+          variant_id: item.variant_id || 0,
+          quantity: item.quantity || 1,
+          unit_price: item.unit_price || 0,
+        })),
+      });
+
+      if (invoiceData.customer) {
+        setSelectedCustomer(invoiceData.customer);
+      } else if (invoiceData.customer_name) {
+        setSelectedCustomer({ name: invoiceData.customer_name });
+      }
+
+      const newVariants = {};
+      items.forEach((item, index) => {
+        if (item.variant) {
+          newVariants[index] = { ...item.variant, product: item.product || item.variant.product };
+        }
+      });
+      setSelectedVariants(newVariants);
+    }
+  }, [invoiceData, reset]);
+
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'items',
   });
 
-  const createMutation = useMutation({
-    mutationFn: (payload) => createSalesInvoice(payload),
+  const updateMutation = useMutation({
+    mutationFn: (payload) => updateSalesInvoice(id, payload),
     onSuccess: async (response) => {
       const data = response?.data ?? {};
       const payload = data?.data ?? data;
@@ -219,8 +267,8 @@ export default function CreateSalesInvoice() {
       const invoiceNumber = invoice?.invoice_number || `INV-${invoice?.id || 'XXXX'}`;
       toast.success(
         hasDeficits
-          ? `تم حفظ الفاتورة رقم ${invoiceNumber} بنجاح. يوجد عجز في ${deficits.length} منتج.`
-          : `تم إنشاء الفاتورة رقم ${invoiceNumber} بنجاح`
+          ? `تم تعديل الفاتورة رقم ${invoiceNumber} بنجاح. يوجد عجز في ${deficits.length} منتج.`
+          : `تم تعديل الفاتورة رقم ${invoiceNumber} بنجاح`
       );
 
       if (hasDeficits) {
@@ -238,6 +286,7 @@ export default function CreateSalesInvoice() {
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['sales-invoices'], refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: ['sales-invoice', id], refetchType: 'all' }),
         queryClient.invalidateQueries({ queryKey: ['inventory'], refetchType: 'all' }),
         queryClient.invalidateQueries({ queryKey: ['inventory-deficits'], refetchType: 'all' }),
         queryClient.invalidateQueries({ queryKey: ['dash-low-stock'], refetchType: 'all' }),
@@ -246,7 +295,7 @@ export default function CreateSalesInvoice() {
 
       navigate(hasDeficits ? '/store/inventory' : '/store/sales-invoices');
     },
-    onError: () => toast.error('تعذر إنشاء فاتورة البيع'),
+    onError: () => toast.error('تعذر تعديل فاتورة البيع'),
   });
 
   const selectedCustomerId = Number(watch('customer_id')) || 0;
@@ -278,7 +327,7 @@ export default function CreateSalesInvoice() {
   const currentStoreId = Number(store?.id ?? store?.store_id ?? 0) || undefined;
 
   const submitInvoice = (values) => {
-    createMutation.mutate({
+    updateMutation.mutate({
       invoice_number: values.invoice_number?.trim() || undefined,
       invoice_date: values.invoice_date || new Date().toISOString().split('T')[0],
       customer_id: Number(values.customer_id),
@@ -373,11 +422,15 @@ export default function CreateSalesInvoice() {
     submitInvoice(values);
   };
 
+  if (invoiceQuery.isLoading) {
+    return <LoadingSpinner />;
+  }
+
   return (
     <div>
       <PageHeader
-        title="إنشاء فاتورة بيع جديدة"
-        subtitle="إضافة فاتورة بيع مع البنود والكميات والأسعار"
+        title="تعديل فاتورة بيع"
+        subtitle={`تعديل فاتورة البيع رقم ${invoiceData?.invoice_number || ''}`}
         actions={
           <Link to="/store/sales-invoices">
             <Button type="button" variant="outline" className="flex items-center gap-2">
@@ -456,19 +509,127 @@ export default function CreateSalesInvoice() {
             <div className="max-h-[380px] overflow-auto">
               {/* Desktop Table View */}
               {!isMobile ? (
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50">
-                  <tr className="border-b border-border">
-                    <th className="w-8 px-3 py-2 text-right text-xs font-medium text-text-muted">#</th>
-                    <th className="min-w-[240px] px-3 py-2 text-right text-xs font-medium text-text-muted">المنتج / الحجم</th>
-                    <th className="w-28 px-3 py-2 text-right text-xs font-medium text-text-muted">الكمية</th>
-                    <th className="w-28 px-3 py-2 text-right text-xs font-medium text-text-muted">السعر</th>
-                    <th className="w-28 px-3 py-2 text-right text-xs font-medium text-text-muted">الإجمالي</th>
-                    <th className="w-10 px-3 py-2" />
-                  </tr>
-                </thead>
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-50">
+                    <tr className="border-b border-border">
+                      <th className="w-8 px-3 py-2 text-right text-xs font-medium text-text-muted">#</th>
+                      <th className="min-w-[240px] px-3 py-2 text-right text-xs font-medium text-text-muted">المنتج / الحجم</th>
+                      <th className="w-28 px-3 py-2 text-right text-xs font-medium text-text-muted">الكمية</th>
+                      <th className="w-28 px-3 py-2 text-right text-xs font-medium text-text-muted">السعر</th>
+                      <th className="w-28 px-3 py-2 text-right text-xs font-medium text-text-muted">الإجمالي</th>
+                      <th className="w-10 px-3 py-2" />
+                    </tr>
+                  </thead>
 
-                <tbody>
+                  <tbody>
+                    {fields.map((field, index) => {
+                      const row = rows[index] || defaultItem;
+                      const selectedVariantId = Number(row.variant_id) || 0;
+                      const variant = selectedVariants[index];
+                      const stock = Number(variant?.current_stock ?? 0);
+                      const quantity = Math.max(Number(row.quantity) || 1, 1);
+                      const rowUnitPrice = Number(row.unit_price) || 0;
+                      const rowTotal = quantity * rowUnitPrice;
+                      const invalidStock = stockViolations[index];
+                      const isCurrentDeficit = stock < 0;
+                      const deficitQty = Math.max(quantity - stock, 0);
+
+                      return (
+                        <tr
+                          key={field.id}
+                          className={`border-b border-border last:border-0 ${invalidStock ? 'bg-amber-50' : 'hover:bg-slate-50'
+                            }`}
+                        >
+                          <td className="px-3 py-2 text-xs text-text-muted">{index + 1}</td>
+
+                          <td className="px-3 py-2 align-top">
+                            <SearchableSelect
+                              value={selectedVariantId || null}
+                              onChange={(id, selectedVariant) => {
+                                setValue(`items.${index}.variant_id`, id ?? 0, { shouldValidate: true, shouldDirty: true });
+                                setValue(`items.${index}.unit_price`, selectedVariant?.sale_price ?? 0, {
+                                  shouldValidate: true,
+                                  shouldDirty: true,
+                                });
+                                setSelectedVariants((previous) => ({ ...previous, [index]: selectedVariant || null }));
+                              }}
+                              fetchFn={(search) => searchVariants(search, { store_id: currentStoreId })}
+                              queryKey={`variants-search-${index}`}
+                              placeholder="ابحث..."
+                              renderOption={(item) => {
+                                const currentStock = Number(item.current_stock ?? 0);
+                                return `${item.name} - ${currentStock.toLocaleString('ar-EG')} قطعة`;
+                              }}
+                              renderSelected={(item) => item.name}
+                              error={errors.items?.[index]?.variant_id?.message}
+                            />
+                            <input type="hidden" {...register(`items.${index}.variant_id`)} />
+
+                            {variant ? (
+                              <p
+                                className={`mt-1 text-xs ${isCurrentDeficit ? 'font-medium text-red-600' : invalidStock ? 'text-amber-600' : 'text-text-muted'
+                                  }`}
+                              >
+                                {isCurrentDeficit
+                                  ? `عجز حالي: ${Math.abs(stock).toLocaleString('ar-EG')} قطعة`
+                                  : invalidStock
+                                    ? `سيحدث عجز ${deficitQty.toLocaleString('ar-EG')} قطعة`
+                                    : `المتاح: ${stock.toLocaleString('ar-EG')} قطعة`}
+                              </p>
+                            ) : null}
+                          </td>
+
+                          <td className="px-3 py-2 align-top">
+                            <Input
+                              type="number"
+                              min="1"
+                              step="1"
+                              {...register(`items.${index}.quantity`)}
+                              className={`h-8 text-sm ${invalidStock ? 'border-amber-500 focus-visible:ring-amber-500' : ''}`}
+                            />
+                            {errors.items?.[index]?.quantity ? (
+                              <p className="mt-1 text-xs text-danger">{errors.items[index].quantity.message}</p>
+                            ) : null}
+                          </td>
+
+                          <td className="px-3 py-2 align-top">
+                            <Input type="number" min="0" step="0.01" {...register(`items.${index}.unit_price`)} className="h-8 text-sm" />
+                            {errors.items?.[index]?.unit_price ? (
+                              <p className="mt-1 text-xs text-danger">{errors.items[index].unit_price.message}</p>
+                            ) : null}
+                          </td>
+
+                          <td className="px-3 py-2 align-top font-mono text-sm font-semibold text-text">{formatCurrency(rowTotal)}</td>
+
+                          <td className="px-3 py-2 align-top">
+                            <button
+                              type="button"
+                              onClick={() => removeRow(index)}
+                              disabled={fields.length === 1}
+                              className="rounded p-1 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
+                              title="حذف البند"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+
+                  <tfoot className="bg-slate-50">
+                    <tr className="border-t-2 border-border">
+                      <td colSpan={4} className="px-3 py-2 text-left text-sm font-medium text-text-muted">
+                        {fields.length} بند
+                      </td>
+                      <td className="px-3 py-2 font-mono text-sm font-bold text-text">{formatCurrency(totalAmount)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              ) : (
+                /* Mobile Card View */
+                <div className="divide-y divide-border bg-slate-50/20">
                   {fields.map((field, index) => {
                     const row = rows[index] || defaultItem;
                     const selectedVariantId = Number(row.variant_id) || 0;
@@ -482,15 +643,25 @@ export default function CreateSalesInvoice() {
                     const deficitQty = Math.max(quantity - stock, 0);
 
                     return (
-                      <tr
+                      <div
                         key={field.id}
-                        className={`border-b border-border last:border-0 ${
-                          invalidStock ? 'bg-amber-50' : 'hover:bg-slate-50'
-                        }`}
+                        className={`p-4 space-y-3 ${invalidStock ? 'bg-amber-50/60' : 'bg-white'}`}
                       >
-                        <td className="px-3 py-2 text-xs text-text-muted">{index + 1}</td>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-text-muted">البند #{index + 1}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeRow(index)}
+                            disabled={fields.length === 1}
+                            className="rounded p-1.5 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
+                            title="حذف البند"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
 
-                        <td className="px-3 py-2 align-top">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-text-muted">المنتج / الحجم</label>
                           <SearchableSelect
                             value={selectedVariantId || null}
                             onChange={(id, selectedVariant) => {
@@ -502,7 +673,7 @@ export default function CreateSalesInvoice() {
                               setSelectedVariants((previous) => ({ ...previous, [index]: selectedVariant || null }));
                             }}
                             fetchFn={(search) => searchVariants(search, { store_id: currentStoreId })}
-                            queryKey={`variants-search-${index}`}
+                            queryKey={`variants-search-mobile-${index}`}
                             placeholder="ابحث..."
                             renderOption={(item) => {
                               const currentStock = Number(item.current_stock ?? 0);
@@ -515,171 +686,50 @@ export default function CreateSalesInvoice() {
 
                           {variant ? (
                             <p
-                              className={`mt-1 text-xs ${
-                                isCurrentDeficit ? 'font-medium text-red-600' : invalidStock ? 'text-amber-600' : 'text-text-muted'
-                              }`}
+                              className={`mt-1 text-[11px] ${isCurrentDeficit ? 'font-medium text-red-600' : invalidStock ? 'text-amber-600' : 'text-text-muted'
+                                }`}
                             >
                               {isCurrentDeficit
                                 ? `عجز حالي: ${Math.abs(stock).toLocaleString('ar-EG')} قطعة`
                                 : invalidStock
-                                ? `سيحدث عجز ${deficitQty.toLocaleString('ar-EG')} قطعة`
-                                : `المتاح: ${stock.toLocaleString('ar-EG')} قطعة`}
+                                  ? `سيحدث عجز ${deficitQty.toLocaleString('ar-EG')} قطعة`
+                                  : `المتاح: ${stock.toLocaleString('ar-EG')} قطعة`}
                             </p>
                           ) : null}
-                        </td>
+                        </div>
 
-                        <td className="px-3 py-2 align-top">
-                          <Input
-                            type="number"
-                            min="1"
-                            step="1"
-                            {...register(`items.${index}.quantity`)}
-                            className={`h-8 text-sm ${invalidStock ? 'border-amber-500 focus-visible:ring-amber-500' : ''}`}
-                          />
-                          {errors.items?.[index]?.quantity ? (
-                            <p className="mt-1 text-xs text-danger">{errors.items[index].quantity.message}</p>
-                          ) : null}
-                        </td>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-text-muted">الكمية</label>
+                            <Input
+                              type="number"
+                              min="1"
+                              step="1"
+                              {...register(`items.${index}.quantity`)}
+                              className={`h-9 text-sm ${invalidStock ? 'border-amber-500 focus-visible:ring-amber-500' : ''}`}
+                            />
+                            {errors.items?.[index]?.quantity ? (
+                              <p className="mt-1 text-xs text-danger">{errors.items[index].quantity.message}</p>
+                            ) : null}
+                          </div>
 
-                        <td className="px-3 py-2 align-top">
-                          <Input type="number" min="0" step="0.01" {...register(`items.${index}.unit_price`)} className="h-8 text-sm" />
-                          {errors.items?.[index]?.unit_price ? (
-                            <p className="mt-1 text-xs text-danger">{errors.items[index].unit_price.message}</p>
-                          ) : null}
-                        </td>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-text-muted">السعر</label>
+                            <Input type="number" min="0" step="0.01" {...register(`items.${index}.unit_price`)} className="h-9 text-sm" />
+                            {errors.items?.[index]?.unit_price ? (
+                              <p className="mt-1 text-xs text-danger">{errors.items[index].unit_price.message}</p>
+                            ) : null}
+                          </div>
+                        </div>
 
-                        <td className="px-3 py-2 align-top font-mono text-sm font-semibold text-text">{formatCurrency(rowTotal)}</td>
-
-                        <td className="px-3 py-2 align-top">
-                          <button
-                            type="button"
-                            onClick={() => removeRow(index)}
-                            disabled={fields.length === 1}
-                            className="rounded p-1 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
-                            title="حذف البند"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
+                        <div className="flex justify-between items-center text-sm font-semibold pt-1 border-t border-slate-50">
+                          <span className="text-text-muted text-xs">إجمالي البند:</span>
+                          <span className="font-mono text-text">{formatCurrency(rowTotal)}</span>
+                        </div>
+                      </div>
                     );
                   })}
-                </tbody>
-
-                <tfoot className="bg-slate-50">
-                  <tr className="border-t-2 border-border">
-                    <td colSpan={4} className="px-3 py-2 text-left text-sm font-medium text-text-muted">
-                      {fields.length} بند
-                    </td>
-                    <td className="px-3 py-2 font-mono text-sm font-bold text-text">{formatCurrency(totalAmount)}</td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
-              ) : (
-              /* Mobile Card View */
-              <div className="divide-y divide-border bg-slate-50/20">
-                {fields.map((field, index) => {
-                  const row = rows[index] || defaultItem;
-                  const selectedVariantId = Number(row.variant_id) || 0;
-                  const variant = selectedVariants[index];
-                  const stock = Number(variant?.current_stock ?? 0);
-                  const quantity = Math.max(Number(row.quantity) || 1, 1);
-                  const rowUnitPrice = Number(row.unit_price) || 0;
-                  const rowTotal = quantity * rowUnitPrice;
-                  const invalidStock = stockViolations[index];
-                  const isCurrentDeficit = stock < 0;
-                  const deficitQty = Math.max(quantity - stock, 0);
-
-                  return (
-                    <div
-                      key={field.id}
-                      className={`p-4 space-y-3 ${invalidStock ? 'bg-amber-50/60' : 'bg-white'}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-text-muted">البند #{index + 1}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeRow(index)}
-                          disabled={fields.length === 1}
-                          className="rounded p-1.5 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
-                          title="حذف البند"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-text-muted">المنتج / الحجم</label>
-                        <SearchableSelect
-                          value={selectedVariantId || null}
-                          onChange={(id, selectedVariant) => {
-                            setValue(`items.${index}.variant_id`, id ?? 0, { shouldValidate: true, shouldDirty: true });
-                            setValue(`items.${index}.unit_price`, selectedVariant?.sale_price ?? 0, {
-                              shouldValidate: true,
-                              shouldDirty: true,
-                            });
-                            setSelectedVariants((previous) => ({ ...previous, [index]: selectedVariant || null }));
-                          }}
-                          fetchFn={(search) => searchVariants(search, { store_id: currentStoreId })}
-                          queryKey={`variants-search-mobile-${index}`}
-                          placeholder="ابحث..."
-                          renderOption={(item) => {
-                            const currentStock = Number(item.current_stock ?? 0);
-                            return `${item.name} - ${currentStock.toLocaleString('ar-EG')} قطعة`;
-                          }}
-                          renderSelected={(item) => item.name}
-                          error={errors.items?.[index]?.variant_id?.message}
-                        />
-                        <input type="hidden" {...register(`items.${index}.variant_id`)} />
-
-                        {variant ? (
-                          <p
-                            className={`mt-1 text-[11px] ${
-                              isCurrentDeficit ? 'font-medium text-red-600' : invalidStock ? 'text-amber-600' : 'text-text-muted'
-                            }`}
-                          >
-                            {isCurrentDeficit
-                              ? `عجز حالي: ${Math.abs(stock).toLocaleString('ar-EG')} قطعة`
-                              : invalidStock
-                              ? `سيحدث عجز ${deficitQty.toLocaleString('ar-EG')} قطعة`
-                              : `المتاح: ${stock.toLocaleString('ar-EG')} قطعة`}
-                          </p>
-                        ) : null}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-text-muted">الكمية</label>
-                          <Input
-                            type="number"
-                            min="1"
-                            step="1"
-                            {...register(`items.${index}.quantity`)}
-                            className={`h-9 text-sm ${invalidStock ? 'border-amber-500 focus-visible:ring-amber-500' : ''}`}
-                          />
-                          {errors.items?.[index]?.quantity ? (
-                            <p className="mt-1 text-xs text-danger">{errors.items[index].quantity.message}</p>
-                          ) : null}
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-text-muted">السعر</label>
-                          <Input type="number" min="0" step="0.01" {...register(`items.${index}.unit_price`)} className="h-9 text-sm" />
-                          {errors.items?.[index]?.unit_price ? (
-                            <p className="mt-1 text-xs text-danger">{errors.items[index].unit_price.message}</p>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center text-sm font-semibold pt-1 border-t border-slate-50">
-                        <span className="text-text-muted text-xs">إجمالي البند:</span>
-                        <span className="font-mono text-text">{formatCurrency(rowTotal)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                </div>
               )}
             </div>
 
@@ -777,9 +827,9 @@ export default function CreateSalesInvoice() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button type="submit" disabled={isSaveDisabled || createMutation.isPending} className="flex w-full items-center gap-2">
+              <Button type="submit" disabled={isSaveDisabled || updateMutation.isPending} className="flex w-full items-center gap-2">
                 <Save className="h-4 w-4" />
-                <span>{createMutation.isPending ? 'جاري الحفظ...' : 'حفظ الفاتورة'}</span>
+                <span>{updateMutation.isPending ? 'جاري الحفظ...' : 'حفظ التعديلات'}</span>
               </Button>
 
               <Link to="/store/sales-invoices" className="w-full">

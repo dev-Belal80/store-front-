@@ -9,6 +9,7 @@ export const getPurchaseInvoices = (page = 1, filters = {}) =>
 		},
 	});
 export const createPurchaseInvoice = (data) => axios.post('/store/purchase-invoices', data);
+export const updatePurchaseInvoice = (id, data) => axios.put(`/store/purchase-invoices/${id}`, data);
 export const getPurchaseInvoice = (id) => axios.get(`/store/purchase-invoices/${id}`);
 export const cancelPurchaseInvoice = (id, data) => axios.post(`/store/purchase-invoices/${id}/cancel`, data);
 export const searchPurchaseInvoices = (search = '', filters = {}) =>

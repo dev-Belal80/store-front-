@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, HandCoins, Plus, Search, XCircle } from 'lucide-react';
+import { Eye, HandCoins, Plus, Search, XCircle, Edit } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getCustomers } from '../../../api/customers';
@@ -318,6 +318,16 @@ export default function SalesInvoicesPage() {
             </button>
 
             {row?.status === 'confirmed' ? (
+              <Link
+                to={`/store/sales-invoices/${row.id}/edit`}
+                className="rounded-md p-2 text-primary hover:bg-primary/10"
+                title="تعديل"
+              >
+                <Edit className="h-4 w-4" />
+              </Link>
+            ) : null}
+
+            {row?.status === 'confirmed' ? (
               <button
                 type="button"
                 onClick={() => {
@@ -587,6 +597,16 @@ export default function SalesInvoicesPage() {
                           <Eye className="h-4 w-4" />
                           <span>عرض التفاصيل</span>
                         </button>
+
+                        {invoice?.status === 'confirmed' ? (
+                          <Link
+                            to={`/store/sales-invoices/${invoice.id}/edit`}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors h-9"
+                          >
+                            <Edit className="h-4 w-4" />
+                            <span>تعديل</span>
+                          </Link>
+                        ) : null}
 
                         {invoice?.status === 'confirmed' ? (
                           <button

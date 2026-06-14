@@ -4,11 +4,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Plus, Save, Search, Trash2, X } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getCategories } from '../../../api/categories';
 import { addVariant, createProduct, searchVariants } from '../../../api/products';
-import { createPurchaseInvoice } from '../../../api/purchaseInvoices';
+import { getPurchaseInvoice, updatePurchaseInvoice } from '../../../api/purchaseInvoices';
 import { getSuppliers } from '../../../api/suppliers';
 import LoadingSpinner from '../../../components/shared/LoadingSpinner';
 import PageHeader from '../../../components/shared/PageHeader';
@@ -212,7 +212,8 @@ function QuickAddBar({ onAdd, storeId }) {
   );
 }
 
-export default function CreatePurchaseInvoicePage() {
+export default function EditPurchaseInvoicePage() {
+  const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const store = useAuthStore((state) => state.store);
@@ -228,12 +229,24 @@ export default function CreatePurchaseInvoicePage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const invoiceQuery = useQuery({
+    queryKey: ['purchase-invoice', id],
+    queryFn: async () => {
+      const res = await getPurchaseInvoice(id);
+      return res.data?.data?.invoice || res.data?.invoice || res.data?.data || res.data;
+    },
+    enabled: Boolean(id),
+  });
+
+  const invoiceData = invoiceQuery.data;
+
   const {
     register,
     control,
     watch,
     handleSubmit,
     setValue,
+    reset,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(purchaseInvoiceSchema),
@@ -245,6 +258,32 @@ export default function CreatePurchaseInvoicePage() {
       items: [defaultItem],
     },
   });
+
+  useEffect(() => {
+    if (invoiceData) {
+      const items = invoiceData.items?.length > 0 ? invoiceData.items : [defaultItem];
+      reset({
+        invoice_number: invoiceData.invoice_number || '',
+        invoice_date: invoiceData.invoice_date || (invoiceData.created_at ? invoiceData.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+        supplier_id: invoiceData.supplier_id || 0,
+        paid_amount: invoiceData.paid_amount || 0,
+        items: items.map(item => ({
+          variant_id: item.variant_id || 0,
+          ordered_quantity: item.ordered_quantity || item.quantity || 1,
+          received_quantity: item.received_quantity || item.quantity || 1,
+          unit_price: item.unit_price || 0,
+        })),
+      });
+
+      const newVariants = {};
+      items.forEach((item, index) => {
+        if (item.variant) {
+          newVariants[index] = { ...item.variant, product: item.product || item.variant.product };
+        }
+      });
+      setSelectedVariants(newVariants);
+    }
+  }, [invoiceData, reset]);
 
   const {
     register: registerCreateProduct,
@@ -278,15 +317,16 @@ export default function CreatePurchaseInvoicePage() {
     queryFn: () => getCategories({ page: 1, per_page: 1000 }),
   });
 
-  const createMutation = useMutation({
-    mutationFn: (data) => createPurchaseInvoice(data),
+  const updateMutation = useMutation({
+    mutationFn: (data) => updatePurchaseInvoice(id, data),
     onSuccess: () => {
-      toast.success('تم إنشاء فاتورة الشراء بنجاح');
+      toast.success('تم تعديل فاتورة الشراء بنجاح');
       queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-invoice', id] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       navigate('/store/purchase-invoices');
     },
-    onError: (error) => toast.error(getApiErrorMessage(error, 'تعذر إنشاء فاتورة الشراء')),
+    onError: (error) => toast.error(getApiErrorMessage(error, 'تعذر تعديل فاتورة الشراء')),
   });
 
   const createProductWithVariantMutation = useMutation({
@@ -435,18 +475,18 @@ export default function CreatePurchaseInvoicePage() {
       }),
     };
 
-    createMutation.mutate(payload);
+    updateMutation.mutate(payload);
   };
 
-  if (suppliersQuery.isLoading || categoriesQuery.isLoading) {
+  if (suppliersQuery.isLoading || categoriesQuery.isLoading || invoiceQuery.isLoading) {
     return <LoadingSpinner />;
   }
 
   return (
     <div>
       <PageHeader
-        title="إضافة فاتورة شراء"
-        subtitle="تسجيل فاتورة شراء جديدة من المورد"
+        title="تعديل فاتورة شراء"
+        subtitle={`تعديل فاتورة الشراء رقم ${invoiceData?.invoice_number || ''}`}
         actions={
           <Link to="/store/purchase-invoices">
             <Button type="button" variant="outline" className="flex items-center gap-2">
@@ -797,9 +837,9 @@ export default function CreatePurchaseInvoicePage() {
             </div>
 
             <div className="flex flex-col sm:flex-row lg:flex-col gap-2">
-              <Button type="submit" disabled={createMutation.isPending} className="flex flex-1 items-center justify-center gap-2">
+              <Button type="submit" disabled={updateMutation.isPending} className="flex flex-1 items-center justify-center gap-2">
                 <Save className="h-4 w-4" />
-                {createMutation.isPending ? 'جاري الحفظ...' : 'حفظ فاتورة الشراء'}
+                {updateMutation.isPending ? 'جاري الحفظ...' : 'حفظ التعديلات'}
               </Button>
               <Link to="/store/purchase-invoices" className="flex-1">
                 <Button type="button" variant="outline" className="w-full">
