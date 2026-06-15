@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, HandCoins, Plus, Search, XCircle, Edit } from 'lucide-react';
+import { Eye, HandCoins, Plus, Search, XCircle, Edit, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getCustomers } from '../../../api/customers';
@@ -126,6 +126,7 @@ export default function SalesInvoicesPage() {
     from: '',
     to: '',
   });
+  const [searchTerm, setSearchTerm] = useState('');
   const [detailsInvoiceId, setDetailsInvoiceId] = useState(null);
   const [cancelInvoice, setCancelInvoice] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
@@ -164,7 +165,7 @@ export default function SalesInvoicesPage() {
   });
 
   const salesInvoicesQuery = useQuery({
-    queryKey: ['sales-invoices', currentPage, filters],
+    queryKey: ['sales-invoices', currentPage, filters, searchTerm],
     queryFn: async () =>
       normalizeList(
         await getSalesInvoices(currentPage, {
@@ -172,6 +173,7 @@ export default function SalesInvoicesPage() {
           customer_id: filters.customer_id || undefined,
           from: filters.from || undefined,
           to: filters.to || undefined,
+          search: searchTerm || undefined,
         })
       ),
     keepPreviousData: true,
@@ -210,6 +212,22 @@ export default function SalesInvoicesPage() {
         'تعذر إلغاء الفاتورة';
       setCancelReasonError(apiMessage);
       toast.error(apiMessage);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => {
+      const { deleteSalesInvoice } = require('../../../api/salesInvoices');
+      return deleteSalesInvoice(id);
+    },
+    onSuccess: () => {
+      toast.success('تم حذف الفاتورة نهائيًا');
+      queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['sales-invoice-details'] });
+    },
+    onError: (error) => {
+      const msg = error?.response?.data?.message || 'تعذر حذف الفاتورة';
+      toast.error(msg);
     },
   });
 
@@ -341,6 +359,16 @@ export default function SalesInvoicesPage() {
                 <XCircle className="h-4 w-4" />
               </button>
             ) : null}
+            {row?.status === 'cancelled' ? (
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate(row.id)}
+                className="rounded-md p-2 text-danger hover:bg-red-50"
+                title="حذف نهائي"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            ) : null}
           </div>
         ),
       },
@@ -467,7 +495,18 @@ export default function SalesInvoicesPage() {
 
       {activeTab === 'invoices' && (
         <>
-          <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-4">
+          <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-5">
+        <div className="relative md:col-span-1">
+          <Input
+            value={searchTerm}
+            onChange={(e) => {
+              setCurrentPage(1);
+              setSearchTerm(e.target.value);
+            }}
+            placeholder="بحث برقم الفاتورة أو اسم العميل..."
+            className="pr-9"
+          />
+        </div>
         <select
           value={filters.customer_id}
           onChange={(event) => {
@@ -620,6 +659,16 @@ export default function SalesInvoicesPage() {
                           >
                             <XCircle className="h-4 w-4" />
                             <span>إلغاء الفاتورة</span>
+                          </button>
+                        ) : null}
+                        {invoice?.status === 'cancelled' ? (
+                          <button
+                            type="button"
+                            onClick={() => deleteMutation.mutate(invoice.id)}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-danger hover:bg-red-50 hover:text-red-700 transition-colors h-9"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            <span>حذف نهائي</span>
                           </button>
                         ) : null}
                       </div>

@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BanknoteArrowDown, Eye, Plus, Search, XCircle, Edit } from 'lucide-react';
+import { BanknoteArrowDown, Eye, Plus, Search, XCircle, Edit, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { createSupplierPayment } from '../../../api/payments';
@@ -163,6 +163,22 @@ export default function PurchaseInvoicesPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id) => {
+      // lazy-load API to avoid circular imports at module init
+      const { deletePurchaseInvoice } = require('../../../api/purchaseInvoices');
+      return deletePurchaseInvoice(id);
+    },
+    onSuccess: () => {
+      toast.success('تم حذف الفاتورة نهائيًا');
+      queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+    },
+    onError: (error) => {
+      const msg = error?.response?.data?.message || 'تعذر حذف الفاتورة';
+      toast.error(msg);
+    },
+  });
+
   const supplierPaymentMutation = useMutation({
     mutationFn: (data) => createSupplierPayment(data),
     onSuccess: () => {
@@ -279,6 +295,17 @@ export default function PurchaseInvoicesPage() {
                 title="إلغاء"
               >
                 <XCircle className="h-4 w-4" />
+              </button>
+            ) : null}
+
+            {row?.status === 'cancelled' ? (
+              <button
+                type="button"
+                onClick={() => deleteMutation.mutate(row.id)}
+                className="rounded-md p-2 text-danger hover:bg-red-50"
+                title="حذف نهائي"
+              >
+                <Trash2 className="h-4 w-4" />
               </button>
             ) : null}
           </div>
@@ -443,6 +470,17 @@ export default function PurchaseInvoicesPage() {
                           >
                             <XCircle className="h-4 w-4" />
                             <span>إلغاء الفاتورة</span>
+                          </button>
+                        ) : null}
+
+                        {invoice?.status === 'cancelled' ? (
+                          <button
+                            type="button"
+                            onClick={() => deleteMutation.mutate(invoice.id)}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-danger hover:bg-red-50 hover:text-red-700 transition-colors h-9"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            <span>حذف نهائي</span>
                           </button>
                         ) : null}
                       </div>
