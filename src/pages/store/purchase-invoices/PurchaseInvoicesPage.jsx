@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BanknoteArrowDown, Eye, Plus, Search, XCircle } from 'lucide-react';
+import { BanknoteArrowDown, Eye, Plus, Search, XCircle, Edit } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { createSupplierPayment } from '../../../api/payments';
@@ -96,6 +96,7 @@ const normalizeList = (response) => {
 };
 
 export default function PurchaseInvoicesPage() {
+ 
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('invoices');
   const [currentPage, setCurrentPage] = useState(1);
@@ -255,6 +256,16 @@ export default function PurchaseInvoicesPage() {
             >
               <Eye className="h-4 w-4" />
             </Link>
+
+            {row?.status === 'confirmed' ? (
+              <Link
+                to={`/store/purchase-invoices/${row.id}/edit`}
+                className="rounded-md p-2 text-primary hover:bg-primary/10"
+                title="تعديل"
+              >
+                <Edit className="h-4 w-4" />
+              </Link>
+            ) : null}
 
             {row?.status !== 'cancelled' ? (
               <button
