@@ -23,6 +23,7 @@ import { normalizePaginatedResponse } from '../../../utils/pagination';
 import PurchaseReturnsTab from './PurchaseReturnsTab';
 
 const supplierPaymentSchema = z.object({
+  invoice_id: z.coerce.number().optional(),
   party_id: z.coerce.number().min(1, 'المورد مطلوب'),
   amount: z.coerce.number().min(0.01, 'المبلغ يجب أن يكون أكبر من صفر'),
   notes: z.string().optional(),
@@ -63,6 +64,10 @@ const getInvoiceAmount = (invoice, key) => {
   }
   return toNumber(invoice?.total_amount ?? invoice?.total ?? invoice?.grand_total ?? invoice?.amount ?? 0);
 };
+
+const getInvoiceRemaining = (invoice) => getInvoiceAmount(invoice, 'total') - getInvoiceAmount(invoice, 'paid');
+
+const getSupplierId = (invoice) => invoice?.supplier?.id || invoice?.supplier_id || invoice?.vendor?.id || invoice?.vendor_id || 0;
 
 const normalizeList = (response) => {
   const normalized = normalizePaginatedResponse(response);
@@ -119,6 +124,7 @@ export default function PurchaseInvoicesPage() {
   } = useForm({
     resolver: zodResolver(supplierPaymentSchema),
     defaultValues: {
+      invoice_id: 0,
       party_id: 0,
       amount: '',
       notes: '',
@@ -187,6 +193,7 @@ export default function PurchaseInvoicesPage() {
       setSupplierSearchTerm('');
       setDebouncedSupplierSearchTerm('');
       resetSupplierPaymentForm({
+        invoice_id: 0,
         party_id: 0,
         amount: '',
         notes: '',
@@ -315,6 +322,33 @@ export default function PurchaseInvoicesPage() {
     []
   );
 
+  const paymentsColumns = useMemo(() => {
+    const base = columns.filter((c) => c.key !== 'actions');
+    base.push({
+      key: 'pay',
+      label: 'إجراءات',
+      render: (_, row) => (
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              const sid = getSupplierId(row);
+              setSupplierPaymentValue('party_id', sid);
+              setSupplierPaymentValue('invoice_id', row.id);
+              setIsSupplierPaymentModalOpen(true);
+            }}
+            className="rounded-md p-2 text-amber-700 hover:bg-amber-50"
+            title="سداد"
+          >
+            <BanknoteArrowDown className="h-4 w-4" />
+          </button>
+        </div>
+      ),
+    });
+
+    return base;
+  }, [columns]);
+
   return (
     <div>
       <PageHeader
@@ -347,6 +381,7 @@ export default function PurchaseInvoicesPage() {
       <div className="mb-4 flex w-full sm:w-fit overflow-hidden rounded-lg border border-border bg-white">
         {[
           { key: 'invoices', label: 'فواتير الشراء' },
+          { key: 'payments', label: 'سداد' },
           { key: 'returns', label: 'مرتجعات الشراء' },
         ].map((tab) => (
           <button
@@ -514,10 +549,11 @@ export default function PurchaseInvoicesPage() {
                 setSupplierSearchTerm('');
                 setDebouncedSupplierSearchTerm('');
                 resetSupplierPaymentForm({
-                  party_id: 0,
-                  amount: '',
-                  notes: '',
-                  date: getTodayDate(),
+                    invoice_id: 0,
+                    party_id: 0,
+                    amount: '',
+                    notes: '',
+                    date: getTodayDate(),
                 });
               }
             }}
@@ -672,6 +708,75 @@ export default function PurchaseInvoicesPage() {
           </DialogFooter>
             </DialogContent>
           </Dialog>
+        </>
+      ) : activeTab === 'payments' ? (
+        <>
+          {purchaseInvoicesQuery.isLoading ? (
+            <LoadingSpinner />
+          ) : (
+            <>
+              <div className="hidden md:block">
+                <DataTable
+                  columns={paymentsColumns}
+                  data={invoices.filter(inv => Number(getInvoiceRemaining(inv)) > 0)}
+                  loading={purchaseInvoicesQuery.isFetching}
+                  emptyMessage="لا توجد فواتير للسداد"
+                />
+              </div>
+
+              <div className="block md:hidden space-y-3">
+                {invoices.filter(inv => Number(getInvoiceRemaining(inv)) > 0).length === 0 ? (
+                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">لا توجد فواتير للسداد</div>
+                ) : (
+                  invoices.filter(inv => Number(getInvoiceRemaining(inv)) > 0).map((invoice) => (
+                    <div key={invoice.id} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-text">{getInvoiceNumber(invoice)}</span>
+                        <StatusBadge status={invoice.status || 'confirmed'} />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="text-text-muted">المورد:</div>
+                        <div className="font-medium text-text text-left">{getSupplierName(invoice)}</div>
+
+                        <div className="text-text-muted">التاريخ:</div>
+                        <div className="text-text text-left font-mono">{getInvoiceDate(invoice) ? formatDate(getInvoiceDate(invoice)) : '—'}</div>
+                      </div>
+
+                      <hr className="border-border" />
+
+                      <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                        <div className="rounded-lg bg-slate-50 p-2">
+                          <div className="text-text-muted mb-1">الإجمالي</div>
+                          <div className="font-semibold text-text">{formatCurrency(getInvoiceAmount(invoice, 'total'))}</div>
+                        </div>
+                        <div className="rounded-lg bg-amber-50/50 p-2 text-amber-800">
+                          <div className="text-amber-600 mb-1">المتبقي</div>
+                          <div className="font-semibold">{formatCurrency(getInvoiceRemaining(invoice))}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const sid = getSupplierId(invoice);
+                            setSupplierPaymentValue('party_id', sid);
+                            setSupplierPaymentValue('invoice_id', invoice.id);
+                            setIsSupplierPaymentModalOpen(true);
+                          }}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-50 transition-colors h-9"
+                        >
+                          <BanknoteArrowDown className="h-4 w-4" />
+                          <span>سداد</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </>
       ) : (
         <PurchaseReturnsTab />

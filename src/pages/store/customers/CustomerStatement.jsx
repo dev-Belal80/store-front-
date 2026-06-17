@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, CalendarDays, Eye, Printer } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -96,6 +96,15 @@ export default function CustomerStatement() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [invoiceDateMap, setInvoiceDateMap] = useState({});
+
+  const isSalesInvoiceType = (type) => {
+    const lower = String(type || '').toLowerCase();
+    return (lower.includes('sales') && lower.includes('invoice')) || lower.includes('sales_invoice') || lower.includes('salesinvoice');
+  };
+
+  
 
   const statementQuery = useQuery({
     queryKey: ['customers-statement', id, range.from, range.to, page, perPage],
@@ -111,11 +120,52 @@ export default function CustomerStatement() {
     keepPreviousData: true,
   });
 
+  const queryClient = useQueryClient();
+
+  const ensureInvoiceDate = (invoiceId) => {
+    if (!invoiceId || invoiceDateMap[invoiceId]) return;
+    queryClient
+      .fetchQuery(['sales-invoice', invoiceId], () => getSalesInvoice(invoiceId))
+      .then((res) => {
+        const payload = extractInvoicePayload(res) || {};
+        const date = payload?.invoice_date ?? payload?.date ?? null;
+        if (date) setInvoiceDateMap((prev) => ({ ...prev, [invoiceId]: date }));
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    const rows = statementQuery.data?.rows || [];
+    const ids = Array.from(
+      new Set(rows.filter((r) => r.referenceId > 0 && isSalesInvoiceType(r.referenceType)).map((r) => r.referenceId))
+    ).filter((id) => !invoiceDateMap[id]);
+
+    if (ids.length === 0) return;
+
+    ids.forEach(async (id) => {
+      try {
+        const res = await getSalesInvoice(id);
+        const payload = extractInvoicePayload(res) || {};
+        const date = payload?.invoice_date ?? payload?.date ?? null;
+        if (date) setInvoiceDateMap((prev) => ({ ...prev, [id]: date }));
+      } catch (e) {
+        // ignore missing invoice
+      }
+    });
+  }, [statementQuery.data?.rows, invoiceDateMap]);
+
   const invoiceDetailsQuery = useQuery({
     queryKey: ['customer-statement-invoice', selectedInvoice?.id],
     queryFn: async () => extractInvoicePayload(await getSalesInvoice(selectedInvoice.id)),
     enabled: Boolean(selectedInvoice?.id),
   });
+
+  useEffect(() => {
+    const data = invoiceDetailsQuery.data;
+    if (!data || !selectedInvoice?.id) return;
+    const date = data?.invoice_date ?? data?.date ?? null;
+    if (date) setInvoiceDateMap((prev) => ({ ...prev, [selectedInvoice.id]: date }));
+  }, [invoiceDetailsQuery.data, selectedInvoice?.id]);
 
   const statementRows = useMemo(() => {
     const rows = statementQuery.data?.rows || [];
@@ -142,13 +192,15 @@ export default function CustomerStatement() {
 
       return {
         id: item?.id ?? `row-${index}`,
-        date: item?.date ?? item?.created_at ?? item?.createdAt,
+        date:
+          item?.invoice_date ?? item?.date ?? item?.transaction_date ?? null,
         description: item?.description ?? item?.statement ?? item?.notes ?? '—',
         debit,
         credit,
         balance: runningBalance,
         referenceType: item?.reference_type ?? item?.referenceType ?? null,
         referenceId: toNumber(item?.reference_id ?? item?.referenceId, 0),
+        raw: item,
       };
     });
   }, [statementQuery.data?.rows]);
@@ -183,7 +235,19 @@ export default function CustomerStatement() {
     {
       key: 'date',
       label: 'التاريخ',
-      render: (value) => (value ? formatDate(value) : '—'),
+      render: (value, row) => {
+        const type = String(row.referenceType || '').toLowerCase();
+
+        // If this row references an invoice, prefer the invoice's date.
+        if (row.referenceId > 0 && isSalesInvoiceType(type)) {
+          if (invoiceDateMap[row.referenceId]) return formatDate(invoiceDateMap[row.referenceId]);
+          // Kick off fetch for the invoice date and show placeholder until available.
+          ensureInvoiceDate(row.referenceId);
+          return '—';
+        }
+
+        return value ? formatDate(value) : '—';
+      },
     },
     {
       key: 'description',
@@ -208,21 +272,35 @@ export default function CustomerStatement() {
       key: 'invoice_action',
       label: 'الفاتورة',
       render: (_, row) => {
-        const isInvoiceReference =
-          row.referenceId > 0 && typeof row.referenceType === 'string' && row.referenceType.includes('sales_invoice');
+        const type = String(row.referenceType || '').toLowerCase();
 
-        if (!isInvoiceReference) return '—';
+        if (row.referenceId > 0 && isSalesInvoiceType(type)) {
+          return (
+            <button
+              type="button"
+              onClick={() => setSelectedInvoice({ id: row.referenceId })}
+              className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
+              title="عرض الفاتورة"
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+          );
+        }
 
-        return (
-          <button
-            type="button"
-            onClick={() => setSelectedInvoice({ id: row.referenceId })}
-            className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
-            title="عرض الفاتورة"
-          >
-            <Eye className="h-4 w-4" />
-          </button>
-        );
+        if (row.referenceId > 0 && (type.includes('payment') || type.includes('receipt') || type.includes('customer_payment'))) {
+          return (
+            <button
+              type="button"
+              onClick={() => setSelectedPayment(row)}
+              className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
+              title="عرض سند التحصيل"
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+          );
+        }
+
+        return '—';
       },
     },
   ];
@@ -376,7 +454,7 @@ export default function CustomerStatement() {
             <div className="space-y-4">
               <div className="grid gap-2 rounded-lg border border-border bg-bg p-3 text-sm text-text-muted md:grid-cols-2">
                 <div>العميل: {invoiceDetails?.customer?.name || invoiceDetails?.customer_name || customerName || '—'}</div>
-                <div>التاريخ: {invoiceDetails?.invoice_date ? formatDate(invoiceDetails.invoice_date) : '—'}</div>
+                <div>التاريخ: {formatDate(invoiceDetails?.invoice_date ?? invoiceDetails?.date ?? null)}</div>
                 <div>الإجمالي: {formatCurrency(invoiceDetails?.total_amount || 0)}</div>
                 <div>المدفوع: {formatCurrency(invoiceDetails?.paid_amount || 0)}</div>
               </div>
@@ -388,6 +466,24 @@ export default function CustomerStatement() {
                 emptyMessage="لا توجد أصناف"
               />
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(selectedPayment)} onOpenChange={(open) => !open && setSelectedPayment(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>تفاصيل سند التحصيل</DialogTitle>
+          </DialogHeader>
+
+          {selectedPayment ? (
+            <div className="space-y-3">
+              <div className="text-sm">البيان: {selectedPayment.description || selectedPayment.raw?.notes || '—'}</div>
+              <div className="text-sm">التاريخ: {formatDate(selectedPayment.date)}</div>
+              <div className="text-sm">المبلغ: {formatCurrency(selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0)}</div>
+              <div className="text-sm">مرجع الفاتورة: {selectedPayment.referenceId ? `#${selectedPayment.referenceId}` : '—'}</div>
+            </div>
+          ) : (
+            <LoadingSpinner />
           )}
         </DialogContent>
       </Dialog>

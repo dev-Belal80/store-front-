@@ -30,6 +30,7 @@ import { normalizePaginatedResponse } from '../../../utils/pagination';
 import SalesReturnsTab from './SalesReturnsTab';
 
 const customerReceiptSchema = z.object({
+  invoice_id: z.coerce.number().optional(),
   party_id: z.coerce.number().min(1, 'العميل مطلوب'),
   amount: z.coerce.number().min(0.01, 'المبلغ يجب أن يكون أكبر من صفر'),
   notes: z.string().optional(),
@@ -68,6 +69,7 @@ const toNumber = (value, fallback = 0) => {
 
 const getInvoiceDate = (invoice) => invoice?.date || invoice?.invoice_date || invoice?.created_at || null;
 const getInvoiceNumber = (invoice) => invoice?.invoice_number || invoice?.number || `INV-${invoice?.id}`;
+const getCustomerId = (invoice) => invoice?.customer?.id || invoice?.customer_id || invoice?.client?.id || invoice?.client_id || 0;
 const getCustomerName = (invoice) =>
   invoice?.customer?.name || invoice?.customer_name || invoice?.client?.name || invoice?.client_name || '—';
 const getInvoiceAmount = (invoice, key) => {
@@ -145,6 +147,7 @@ export default function SalesInvoicesPage() {
   } = useForm({
     resolver: zodResolver(customerReceiptSchema),
     defaultValues: {
+      invoice_id: 0,
       party_id: 0,
       amount: '',
       notes: '',
@@ -239,6 +242,7 @@ export default function SalesInvoicesPage() {
       setReceiptSearchTerm('');
       setDebouncedReceiptSearchTerm('');
       resetReceiptForm({
+        invoice_id: 0,
         party_id: 0,
         amount: '',
         notes: '',
@@ -376,6 +380,33 @@ export default function SalesInvoicesPage() {
     []
   );
 
+  const collectionColumns = useMemo(() => {
+    const base = columns.filter((c) => c.key !== 'actions');
+    base.push({
+      key: 'collect',
+      label: 'إجراءات',
+      render: (_, row) => (
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              const cid = getCustomerId(row);
+              setReceiptValue('party_id', cid);
+              setReceiptValue('invoice_id', row.id);
+              setIsReceiptModalOpen(true);
+            }}
+            className="rounded-md p-2 text-emerald-700 hover:bg-emerald-50"
+            title="تحصيل"
+          >
+            <HandCoins className="h-4 w-4" />
+          </button>
+        </div>
+      ),
+    });
+
+    return base;
+  }, [columns]);
+
   const repColumns = useMemo(
     () => [
       {
@@ -477,6 +508,7 @@ export default function SalesInvoicesPage() {
       <div className="mb-4 flex w-full sm:w-fit overflow-hidden rounded-lg border border-border bg-white">
         {[
           { key: 'invoices', label: 'فواتير البيع' },
+          { key: 'collections', label: 'تحصيلات' },
           { key: 'returns', label: 'مرتجعات البيع' },
           { key: 'reps_stats', label: 'تقرير المهندسين / المناديب' },
         ].map((tab) => (
@@ -758,11 +790,12 @@ export default function SalesInvoicesPage() {
                 setReceiptSearchTerm('');
                 setDebouncedReceiptSearchTerm('');
                 resetReceiptForm({
-                  party_id: 0,
-                  amount: '',
-                  notes: '',
-                  date: getTodayDate(),
-                  receipt_number: '',
+                    invoice_id: 0,
+                    party_id: 0,
+                    amount: '',
+                    notes: '',
+                    date: getTodayDate(),
+                    receipt_number: '',
                 });
               }
             }}
@@ -917,6 +950,131 @@ export default function SalesInvoicesPage() {
           </DialogFooter>
             </DialogContent>
           </Dialog>
+        </>
+      )}
+
+      {activeTab === 'collections' && (
+        <>
+          <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-5">
+            <div className="relative md:col-span-2">
+              <Input
+                value={searchTerm}
+                onChange={(e) => {
+                  setCurrentPage(1);
+                  setSearchTerm(e.target.value);
+                }}
+                placeholder="بحث برقم الفاتورة أو اسم العميل..."
+                className="pr-9"
+              />
+            </div>
+
+            <select
+              value={filters.customer_id}
+              onChange={(event) => {
+                setCurrentPage(1);
+                setFilters((previous) => ({ ...previous, customer_id: event.target.value }));
+              }}
+              className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <option value="">كل العملاء</option>
+              {customers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.name}
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="date"
+              value={filters.from}
+              onChange={(event) => {
+                setCurrentPage(1);
+                setFilters((previous) => ({ ...previous, from: event.target.value }));
+              }}
+              className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            />
+
+            <input
+              type="date"
+              value={filters.to}
+              onChange={(event) => {
+                setCurrentPage(1);
+                setFilters((previous) => ({ ...previous, to: event.target.value }));
+              }}
+              className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            />
+          </div>
+
+          {salesInvoicesQuery.isLoading ? (
+            <LoadingSpinner />
+          ) : (
+            <>
+              <div className="hidden md:block">
+                <DataTable
+                  columns={collectionColumns}
+                  data={invoices.filter(inv => Number(getInvoiceAmount(inv, 'remaining')) > 0)}
+                  loading={salesInvoicesQuery.isFetching}
+                  emptyMessage="لا توجد فواتير للتحصيل"
+                />
+              </div>
+
+              <div className="block md:hidden space-y-3">
+                {invoices.filter(inv => Number(getInvoiceAmount(inv, 'remaining')) > 0).length === 0 ? (
+                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">لا توجد فواتير للتحصيل</div>
+                ) : (
+                  invoices.filter(inv => Number(getInvoiceAmount(inv, 'remaining')) > 0).map((invoice) => (
+                    <div key={invoice.id} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-text">{getInvoiceNumber(invoice)}</span>
+                        <StatusBadge status={invoice.status || 'confirmed'} />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="text-text-muted">العميل:</div>
+                        <div className="font-medium text-text text-left">{getCustomerName(invoice)}</div>
+
+                        <div className="text-text-muted">التاريخ:</div>
+                        <div className="text-text text-left font-mono">{getInvoiceDate(invoice) ? formatDate(getInvoiceDate(invoice)) : '—'}</div>
+                      </div>
+
+                      <hr className="border-border" />
+
+                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="rounded-lg bg-slate-50 p-2">
+                          <div className="text-text-muted mb-1">الإجمالي</div>
+                          <div className="font-semibold text-text">{formatCurrency(getInvoiceAmount(invoice, 'total'))}</div>
+                        </div>
+                        <div className="rounded-lg bg-emerald-50/50 p-2 text-emerald-800">
+                          <div className="text-emerald-600 mb-1">المدفوع</div>
+                          <div className="font-semibold">{formatCurrency(getInvoiceAmount(invoice, 'paid'))}</div>
+                        </div>
+                        <div className="rounded-lg bg-red-50/50 p-2 text-red-800">
+                          <div className="text-red-600 mb-1">المتبقي</div>
+                          <div className="font-semibold">{formatCurrency(getInvoiceAmount(invoice, 'remaining'))}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cid = getCustomerId(invoice);
+                            setReceiptValue('party_id', cid);
+                            setReceiptValue('invoice_id', invoice.id);
+                            setIsReceiptModalOpen(true);
+                          }}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 transition-colors h-9"
+                        >
+                          <HandCoins className="h-4 w-4" />
+                          <span>تحصيل</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </>
       )}
 

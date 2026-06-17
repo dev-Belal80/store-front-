@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, CalendarDays, Eye, Printer } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -94,6 +94,13 @@ export default function SupplierStatement() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [invoiceDateMap, setInvoiceDateMap] = useState({});
+
+  const isPurchaseInvoiceType = (type) => {
+    const lower = String(type || '').toLowerCase();
+    return (lower.includes('purchase') && lower.includes('invoice')) || lower.includes('purchase_invoice') || lower.includes('purchaseinvoice');
+  };
 
   const statementQuery = useQuery({
     queryKey: ['suppliers-statement', id, range.from, range.to, page, perPage],
@@ -109,11 +116,52 @@ export default function SupplierStatement() {
     keepPreviousData: true,
   });
 
+  const queryClient = useQueryClient();
+
+  const ensureInvoiceDate = (invoiceId) => {
+    if (!invoiceId || invoiceDateMap[invoiceId]) return;
+    queryClient
+      .fetchQuery(['purchase-invoice', invoiceId], () => getPurchaseInvoice(invoiceId))
+      .then((res) => {
+        const payload = extractInvoicePayload(res) || {};
+        const date = payload?.invoice_date ?? payload?.date ?? null;
+        if (date) setInvoiceDateMap((prev) => ({ ...prev, [invoiceId]: date }));
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    const rows = statementQuery.data?.rows || [];
+    const ids = Array.from(
+      new Set(rows.filter((r) => r.referenceId > 0 && isPurchaseInvoiceType(r.referenceType)).map((r) => r.referenceId))
+    ).filter((id) => !invoiceDateMap[id]);
+
+    if (ids.length === 0) return;
+
+    ids.forEach(async (id) => {
+      try {
+        const res = await getPurchaseInvoice(id);
+        const payload = extractInvoicePayload(res) || {};
+        const date = payload?.invoice_date ?? payload?.date ?? null;
+        if (date) setInvoiceDateMap((prev) => ({ ...prev, [id]: date }));
+      } catch (e) {
+        // ignore
+      }
+    });
+  }, [statementQuery.data?.rows, invoiceDateMap]);
+
   const invoiceDetailsQuery = useQuery({
     queryKey: ['supplier-statement-invoice', selectedInvoice?.id],
     queryFn: async () => extractInvoicePayload(await getPurchaseInvoice(selectedInvoice.id)),
     enabled: Boolean(selectedInvoice?.id),
   });
+
+  useEffect(() => {
+    const data = invoiceDetailsQuery.data;
+    if (!data || !selectedInvoice?.id) return;
+    const date = data?.invoice_date ?? data?.date ?? null;
+    if (date) setInvoiceDateMap((prev) => ({ ...prev, [selectedInvoice.id]: date }));
+  }, [invoiceDetailsQuery.data, selectedInvoice?.id]);
 
   const statementRows = useMemo(() => {
     const rows = statementQuery.data?.rows || [];
@@ -140,13 +188,15 @@ export default function SupplierStatement() {
 
       return {
         id: item?.id ?? `row-${index}`,
-        date: item?.date ?? item?.created_at ?? item?.createdAt,
+        date:
+          item?.invoice_date ?? item?.date ?? item?.transaction_date ?? null,
         description: item?.description ?? item?.statement ?? item?.notes ?? '—',
         debit,
         credit,
         balance: runningBalance,
         referenceType: item?.reference_type ?? item?.referenceType ?? null,
         referenceId: toNumber(item?.reference_id ?? item?.referenceId, 0),
+        raw: item,
       };
     });
   }, [statementQuery.data?.rows]);
@@ -181,7 +231,18 @@ export default function SupplierStatement() {
     {
       key: 'date',
       label: 'التاريخ',
-      render: (value) => (value ? formatDate(value) : '—'),
+      render: (value, row) => {
+        const type = String(row.referenceType || '').toLowerCase();
+
+        // If this row references an invoice, prefer the invoice's date.
+        if (row.referenceId > 0 && isPurchaseInvoiceType(type)) {
+          if (invoiceDateMap[row.referenceId]) return formatDate(invoiceDateMap[row.referenceId]);
+          ensureInvoiceDate(row.referenceId);
+          return '—';
+        }
+
+        return value ? formatDate(value) : '—';
+      },
     },
     {
       key: 'description',
@@ -206,21 +267,35 @@ export default function SupplierStatement() {
       key: 'invoice_action',
       label: 'الفاتورة',
       render: (_, row) => {
-        const isInvoiceReference =
-          row.referenceId > 0 && typeof row.referenceType === 'string' && row.referenceType.includes('purchase_invoice');
+        const type = String(row.referenceType || '').toLowerCase();
 
-        if (!isInvoiceReference) return '—';
+        if (row.referenceId > 0 && isPurchaseInvoiceType(type)) {
+          return (
+            <button
+              type="button"
+              onClick={() => setSelectedInvoice({ id: row.referenceId })}
+              className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
+              title="عرض الفاتورة"
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+          );
+        }
 
-        return (
-          <button
-            type="button"
-            onClick={() => setSelectedInvoice({ id: row.referenceId })}
-            className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
-            title="عرض الفاتورة"
-          >
-            <Eye className="h-4 w-4" />
-          </button>
-        );
+        if (row.referenceId > 0 && (type.includes('payment') || type.includes('receipt') || type.includes('supplier_payment'))) {
+          return (
+            <button
+              type="button"
+              onClick={() => setSelectedPayment(row)}
+              className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
+              title="عرض سند السداد"
+            >
+              <Eye className="h-4 w-4" />
+            </button>
+          );
+        }
+
+        return '—';
       },
     },
   ];
@@ -364,7 +439,7 @@ export default function SupplierStatement() {
             <div className="space-y-4">
               <div className="grid gap-2 rounded-lg border border-border bg-bg p-3 text-sm text-text-muted md:grid-cols-2">
                 <div>المورد: {invoiceDetails?.supplier?.name || invoiceDetails?.supplier_name || supplierName || '—'}</div>
-                <div>التاريخ: {invoiceDetails?.date ? formatDate(invoiceDetails.date) : '—'}</div>
+                <div>التاريخ: {formatDate(invoiceDetails?.invoice_date ?? invoiceDetails?.date ?? null)}</div>
                 <div>الإجمالي: {formatCurrency(invoiceDetails?.total_amount || 0)}</div>
                 <div>المدفوع: {formatCurrency(invoiceDetails?.paid_amount || 0)}</div>
               </div>
@@ -376,6 +451,24 @@ export default function SupplierStatement() {
                 emptyMessage="لا توجد أصناف"
               />
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(selectedPayment)} onOpenChange={(open) => !open && setSelectedPayment(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>تفاصيل سند السداد</DialogTitle>
+          </DialogHeader>
+
+          {selectedPayment ? (
+            <div className="space-y-3">
+              <div className="text-sm">البيان: {selectedPayment.description || selectedPayment.raw?.notes || '—'}</div>
+              <div className="text-sm">التاريخ: {formatDate(selectedPayment.date)}</div>
+              <div className="text-sm">المبلغ: {formatCurrency(selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0)}</div>
+              <div className="text-sm">مرجع الفاتورة: {selectedPayment.referenceId ? `#${selectedPayment.referenceId}` : '—'}</div>
+            </div>
+          ) : (
+            <LoadingSpinner />
           )}
         </DialogContent>
       </Dialog>
