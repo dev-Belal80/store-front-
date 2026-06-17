@@ -24,6 +24,7 @@ export default function ForgotPasswordPage() {
 
   const [serverErrors, setServerErrors] = useState({});
   const [returnedToken, setReturnedToken] = useState('');
+  const showTokenAllowed = process.env.NODE_ENV === 'development' || (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
 
   const onSubmit = async (values) => {
     setErrorMessage('');
@@ -50,7 +51,21 @@ export default function ForgotPasswordPage() {
   return (
     <main className="min-h-screen bg-bg">
       <div className="grid min-h-screen grid-cols-1 lg:grid-cols-5">
-        <section className="col-span-1 flex items-center justify-center px-4 py-10 lg:col-span-2 lg:px-10">
+        {/* Left promo for large screens */}
+        <section className="hidden lg:flex lg:col-span-3 lg:flex-col lg:justify-between lg:overflow-hidden lg:bg-gradient-to-br lg:from-primary lg:to-primary-dark lg:p-12 lg:text-white">
+          <div className="flex items-center gap-3 text-2xl font-bold">
+            <span aria-hidden="true">🌿</span>
+            <span>AgriStore</span>
+          </div>
+          <div className="max-w-lg space-y-4">
+            <h1 className="text-4xl font-bold leading-tight">نظام إدارة المخازن الزراعية</h1>
+            <p className="text-lg text-white/90">منصة موحدة لإدارة المنتجات، المخزون، والمبيعات بكفاءة عالية لمتاجر القطاع الزراعي.</p>
+          </div>
+          <div className="text-sm text-white/80">حلول ذكية لإدارة المتاجر الزراعية الحديثة</div>
+        </section>
+
+        {/* Form card */}
+        <section className="col-span-1 flex items-center justify-center px-4 py-10 lg:col-span-2 lg:px-16">
           <Card className="w-full max-w-md">
             <CardHeader>
               <CardTitle className="text-center">نسيت كلمة المرور</CardTitle>
@@ -70,8 +85,20 @@ export default function ForgotPasswordPage() {
                   إرسال رابط إعادة التعيين
                 </Button>
 
-         
+                {returnedToken && showTokenAllowed ? (
+                  <div className="mt-2 rounded-md border border-border p-3 bg-muted text-sm text-muted-foreground">
+                    <div className="font-medium">رمز الاختبار (محلي)</div>
+                    <div className="break-all mt-1">{returnedToken}</div>
+                  </div>
+                ) : null}
+
                 {errorMessage ? <p className="text-center text-sm text-danger">{errorMessage}</p> : null}
+
+                <div className="flex items-center justify-between pt-2 text-sm">
+                  <button type="button" onClick={() => navigate('/login')} className="text-primary">
+                    العودة لتسجيل الدخول
+                  </button>
+                </div>
               </form>
             </CardContent>
           </Card>
