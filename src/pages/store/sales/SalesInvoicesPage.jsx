@@ -7,7 +7,7 @@ import { Eye, HandCoins, Plus, Search, XCircle, Edit, Trash2 } from 'lucide-reac
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getCustomers } from '../../../api/customers';
-import { createCustomerPayment } from '../../../api/payments';
+import { createCustomerPayment, getAllCustomerPayments, updatePayment, deletePayment } from '../../../api/payments';
 import { cancelSalesInvoice, getSalesInvoice, getSalesInvoices, getSalesRepsStats } from '../../../api/salesInvoices';
 import BalanceDisplay from '../../../components/shared/BalanceDisplay';
 import DataTable from '../../../components/shared/DataTable';
@@ -136,6 +136,11 @@ export default function SalesInvoicesPage() {
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [receiptSearchTerm, setReceiptSearchTerm] = useState('');
   const [debouncedReceiptSearchTerm, setDebouncedReceiptSearchTerm] = useState('');
+  const [paymentsTabList, setPaymentsTabList] = useState([]);
+  const [paymentsTabLoading, setPaymentsTabLoading] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [paymentsModalOpen, setPaymentsModalOpen] = useState(false);
+  const [editingSaving, setEditingSaving] = useState(false);
 
   const {
     register: registerReceipt,
@@ -262,6 +267,77 @@ export default function SalesInvoicesPage() {
 
     return () => clearTimeout(timeoutId);
   }, [receiptSearchTerm]);
+
+  // load all customer payments when Collections tab active
+  useEffect(() => {
+    if (activeTab !== 'collections') {
+      setPaymentsTabList([]);
+      return;
+    }
+
+    let mounted = true;
+    (async () => {
+      setPaymentsTabLoading(true);
+      try {
+        const res = await getAllCustomerPayments();
+        const payload = res?.data?.data ?? res?.data ?? [];
+        const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+        if (mounted) setPaymentsTabList(items);
+      } catch (e) {
+        toast.error('تعذر جلب التحصيلات');
+        if (mounted) setPaymentsTabList([]);
+      } finally {
+        if (mounted) setPaymentsTabLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [activeTab]);
+
+  const handleSavePayment = async (payment) => {
+    setEditingSaving(true);
+    try {
+      const payload = {
+        amount: Number(payment.amount) || 0,
+        date: payment.date || payment.transaction_date || undefined,
+        notes: payment.notes || payment.description || undefined,
+        receipt_number: payment.receipt_number ?? payment.payment_number ?? undefined,
+      };
+      await updatePayment(payment.id, payload);
+      toast.success('تم تعديل السند');
+      setEditingPayment(null);
+      setPaymentsModalOpen(false);
+      // refresh list
+      const res = await getAllCustomerPayments();
+      const payloadRes = res?.data?.data ?? res?.data ?? [];
+      const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
+      setPaymentsTabList(items);
+      queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
+    } catch (e) {
+      toast.error('فشل تعديل السند');
+    } finally {
+      setEditingSaving(false);
+    }
+  };
+
+  const handleDeletePayment = async (payment) => {
+    const ok = window.confirm('هل متأكد من حذف السند؟ لا يمكن التراجع');
+    if (!ok) return;
+    try {
+      await deletePayment(payment.id);
+      toast.success('تم حذف السند');
+      // refresh list
+      const res = await getAllCustomerPayments();
+      const payloadRes = res?.data?.data ?? res?.data ?? [];
+      const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
+      setPaymentsTabList(items);
+      queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
+    } catch (e) {
+      toast.error('فشل حذف السند');
+    }
+  };
 
   const invoices = salesInvoicesQuery.data?.items || [];
   const meta = salesInvoicesQuery.data?.meta || { page: 1, lastPage: 1, total: 0, perPage: SALES_INVOICES_PER_PAGE };
@@ -1011,64 +1087,46 @@ export default function SalesInvoicesPage() {
             <>
               <div className="hidden md:block">
                 <DataTable
-                  columns={collectionColumns}
-                  data={invoices.filter(inv => Number(getInvoiceAmount(inv, 'remaining')) > 0)}
-                  loading={salesInvoicesQuery.isFetching}
-                  emptyMessage="لا توجد فواتير للتحصيل"
+                  columns={[
+                    { key: 'receipt', label: 'رقم السند', render: (_, row) => row.receipt_number ?? row.payment_number ?? row.id },
+                    { key: 'date', label: 'التاريخ', render: (value, row) => row.date ?? row.created_at ?? '—' },
+                    { key: 'amount', label: 'المبلغ', render: (value, row) => formatCurrency(row.amount ?? row.debit ?? row.credit ?? 0) },
+                    { key: 'desc', label: 'البيان', render: (value, row) => row.notes ?? row.description ?? row.raw?.notes ?? '—' },
+                    { key: 'actions', label: 'إجراءات', render: (_, row) => (
+                      <div className="flex items-center gap-2">
+                        <button type="button" className="rounded-md p-2 text-primary hover:bg-primary/10" title="تعديل" onClick={() => { setEditingPayment(row); setPaymentsModalOpen(true); }}>
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button type="button" className="rounded-md p-2 text-danger hover:bg-red-50" title="حذف" onClick={() => handleDeletePayment(row)}>
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) },
+                  ]}
+                  data={paymentsTabList}
+                  loading={paymentsTabLoading}
+                  emptyMessage="لا توجد تحصيلات"
                 />
               </div>
 
               <div className="block md:hidden space-y-3">
-                {invoices.filter(inv => Number(getInvoiceAmount(inv, 'remaining')) > 0).length === 0 ? (
-                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">لا توجد فواتير للتحصيل</div>
+                {paymentsTabLoading ? (
+                  <LoadingSpinner />
+                ) : paymentsTabList.length === 0 ? (
+                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">لا توجد تحصيلات</div>
                 ) : (
-                  invoices.filter(inv => Number(getInvoiceAmount(inv, 'remaining')) > 0).map((invoice) => (
-                    <div key={invoice.id} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3">
+                  paymentsTabList.map((p) => (
+                    <div key={p.id} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-text">{getInvoiceNumber(invoice)}</span>
-                        <StatusBadge status={invoice.status || 'confirmed'} />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div className="text-text-muted">العميل:</div>
-                        <div className="font-medium text-text text-left">{getCustomerName(invoice)}</div>
-
-                        <div className="text-text-muted">التاريخ:</div>
-                        <div className="text-text text-left font-mono">{getInvoiceDate(invoice) ? formatDate(getInvoiceDate(invoice)) : '—'}</div>
-                      </div>
-
-                      <hr className="border-border" />
-
-                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                        <div className="rounded-lg bg-slate-50 p-2">
-                          <div className="text-text-muted mb-1">الإجمالي</div>
-                          <div className="font-semibold text-text">{formatCurrency(getInvoiceAmount(invoice, 'total'))}</div>
-                        </div>
-                        <div className="rounded-lg bg-emerald-50/50 p-2 text-emerald-800">
-                          <div className="text-emerald-600 mb-1">المدفوع</div>
-                          <div className="font-semibold">{formatCurrency(getInvoiceAmount(invoice, 'paid'))}</div>
-                        </div>
-                        <div className="rounded-lg bg-red-50/50 p-2 text-red-800">
-                          <div className="text-red-600 mb-1">المتبقي</div>
-                          <div className="font-semibold">{formatCurrency(getInvoiceAmount(invoice, 'remaining'))}</div>
+                        <span className="font-mono font-bold text-text">{p.receipt_number ?? p.payment_number ?? p.id}</span>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => { setEditingPayment(p); setPaymentsModalOpen(true); }} className="rounded-md p-2 text-primary hover:bg-primary/10"><Edit className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => handleDeletePayment(p)} className="rounded-md p-2 text-danger hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       </div>
-
-                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const cid = getCustomerId(invoice);
-                            setReceiptValue('party_id', cid);
-                            setReceiptValue('invoice_id', invoice.id);
-                            setIsReceiptModalOpen(true);
-                          }}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 transition-colors h-9"
-                        >
-                          <HandCoins className="h-4 w-4" />
-                          <span>تحصيل</span>
-                        </button>
-                      </div>
+                      <div className="text-sm text-text-muted">{p.date ?? p.created_at ?? '—'}</div>
+                      <div className="text-lg font-semibold">{formatCurrency(p.amount ?? p.debit ?? p.credit ?? 0)}</div>
+                      <div className="text-sm text-text-muted">{p.notes ?? p.description ?? '—'}</div>
                     </div>
                   ))
                 )}
@@ -1077,6 +1135,46 @@ export default function SalesInvoicesPage() {
           )}
         </>
       )}
+
+      <Dialog open={paymentsModalOpen} onOpenChange={(open) => { if (!open) { setPaymentsModalOpen(false); setEditingPayment(null); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>تعديل سند التحصيل</DialogTitle>
+            <DialogDescription>عدّل تفاصيل السند ثم احفظ</DialogDescription>
+          </DialogHeader>
+
+          {editingPayment ? (
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-text">المبلغ</label>
+                  <Input type="number" value={editingPayment.amount ?? editingPayment.debit ?? editingPayment.credit ?? 0} onChange={(e) => setEditingPayment((s) => ({ ...s, amount: e.target.value }))} />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-text">التاريخ</label>
+                  <Input type="date" value={editingPayment.date ?? editingPayment.transaction_date ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, date: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">رقم السند</label>
+                <Input value={editingPayment.receipt_number ?? editingPayment.payment_number ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, receipt_number: e.target.value }))} />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text">الملاحظات</label>
+                <Input value={editingPayment.notes ?? editingPayment.description ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, notes: e.target.value }))} />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => { setPaymentsModalOpen(false); setEditingPayment(null); }} disabled={editingSaving}>إلغاء</Button>
+                <Button type="button" onClick={() => handleSavePayment(editingPayment)} disabled={editingSaving}>{editingSaving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {activeTab === 'returns' && (
         <SalesReturnsTab />

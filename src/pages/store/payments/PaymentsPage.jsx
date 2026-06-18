@@ -364,32 +364,46 @@ export default function PaymentsPage() {
                     </thead>
                     <tbody>
                       {invoices.map((inv) => (
-                        <tr key={inv.id} className="border-t">
-                          <td className="py-2 pr-3">{inv.id}</td>
-                          <td className="py-2 pr-3">{inv.number ?? inv.reference ?? '-'}</td>
-                          <td className="py-2 pr-3">{inv.date ?? inv.created_at ?? '-'}</td>
-                          <td className="py-2 pr-3">{inv.total ?? inv.amount ?? '-'}</td>
-                          <td className="py-2 pr-3">{inv.remaining_amount ?? inv.remaining ?? inv.remainingAmount ?? 0}</td>
-                          <td className="py-2 pr-3">
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                className="rounded-md bg-primary px-3 py-1 text-white text-xs"
-                                onClick={() => setValue('invoice_id', inv.id)}
-                              >
-                                اختيار
-                              </button>
-                              <button
-                                type="button"
-                                className="rounded-md border px-3 py-1 text-xs"
-                                onClick={() => loadInvoiceDetails(inv.id)}
-                              >
-                                عرض
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                            <tr key={inv.id} className="border-t">
+                              <td className="py-2 pr-3">{inv.id}</td>
+                              <td className="py-2 pr-3">{inv.number ?? inv.reference ?? '-'}</td>
+                              <td className="py-2 pr-3">{inv.date ?? inv.created_at ?? '-'}</td>
+                              <td className="py-2 pr-3">{inv.total ?? inv.amount ?? '-'}</td>
+                              <td className="py-2 pr-3">{inv.remaining_amount ?? inv.remaining ?? inv.remainingAmount ?? 0}</td>
+                              <td className="py-2 pr-3">
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    className="rounded-md bg-primary px-3 py-1 text-white text-xs"
+                                    onClick={() => setValue('invoice_id', inv.id)}
+                                  >
+                                    اختيار
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md border px-3 py-1 text-xs"
+                                    onClick={() => loadInvoiceDetails(inv.id)}
+                                  >
+                                    عرض
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md border px-3 py-1 text-xs"
+                                    onClick={() => navigate(activeTab === 'customer' ? `/store/sales-invoices/${inv.id}/edit` : `/store/purchase-invoices/${inv.id}/edit`)}
+                                  >
+                                    تعديل
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md border px-3 py-1 text-xs text-danger"
+                                    onClick={() => handleDeleteInvoice(inv.id)}
+                                  >
+                                    حذف
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
                     </tbody>
                   </table>
                 </div>

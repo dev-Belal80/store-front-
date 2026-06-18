@@ -5,6 +5,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getStatement as getCustomerStatement } from '../../../api/customers';
 import { getSalesInvoice } from '../../../api/salesInvoices';
+import { updatePayment, deletePayment } from '../../../api/payments';
 import BalanceDisplay from '../../../components/shared/BalanceDisplay';
 import DataTable from '../../../components/shared/DataTable';
 import LoadingSpinner from '../../../components/shared/LoadingSpinner';
@@ -308,6 +309,11 @@ export default function CustomerStatement() {
   const invoiceDetails = invoiceDetailsQuery.data || {};
   const invoiceItems = Array.isArray(invoiceDetails?.items) ? invoiceDetails.items : [];
 
+  const [isEditingPayment, setIsEditingPayment] = useState(false);
+  const [editAmount, setEditAmount] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+
   const invoiceItemsColumns = [
     {
       key: 'product',
@@ -475,16 +481,95 @@ export default function CustomerStatement() {
             <DialogTitle>تفاصيل سند التحصيل</DialogTitle>
           </DialogHeader>
 
-          {selectedPayment ? (
-            <div className="space-y-3">
-              <div className="text-sm">البيان: {selectedPayment.description || selectedPayment.raw?.notes || '—'}</div>
-              <div className="text-sm">التاريخ: {formatDate(selectedPayment.date)}</div>
-              <div className="text-sm">المبلغ: {formatCurrency(selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0)}</div>
-              <div className="text-sm">مرجع الفاتورة: {selectedPayment.referenceId ? `#${selectedPayment.referenceId}` : '—'}</div>
-            </div>
-          ) : (
-            <LoadingSpinner />
-          )}
+              {selectedPayment ? (
+                <div className="space-y-3">
+                  {!isEditingPayment ? (
+                    <>
+                      <div className="text-sm">البيان: {selectedPayment.description || selectedPayment.raw?.notes || '—'}</div>
+                      <div className="text-sm">التاريخ: {formatDate(selectedPayment.date)}</div>
+                      <div className="text-sm">المبلغ: {formatCurrency(selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0)}</div>
+                      <div className="text-sm">مرجع الفاتورة: {selectedPayment.referenceId ? `#${selectedPayment.referenceId}` : '—'}</div>
+                      <div className="flex gap-2 pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            const amount = selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0;
+                            setEditAmount(String(amount));
+                            setEditDate(selectedPayment.date || selectedPayment.raw?.date || '');
+                            setEditNotes(selectedPayment.description || selectedPayment.raw?.notes || '');
+                            setIsEditingPayment(true);
+                          }}
+                        >
+                          تعديل
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          onClick={async () => {
+                            const ok = window.confirm('هل متأكد من حذف سند التحصيل؟ لا يمكن التراجع');
+                            if (!ok) return;
+                            try {
+                              await deletePayment(selectedPayment.id || selectedPayment.raw?.id || selectedPayment.raw?.payment_id);
+                              toast.success('تم حذف السند');
+                              setSelectedPayment(null);
+                              queryClient.invalidateQueries(['customers-statement', id]);
+                            } catch (e) {
+                              toast.error('فشل حذف السند');
+                            }
+                          }}
+                        >
+                          حذف
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="grid gap-2">
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-text">المبلغ</label>
+                        <Input type="number" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-text">التاريخ</label>
+                        <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-text">البيان</label>
+                        <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+                      </div>
+                      <div className="flex gap-2 pt-2">
+                        <Button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const payload = {
+                                amount: Number(editAmount) || 0,
+                                date: editDate || undefined,
+                                notes: editNotes || undefined,
+                              };
+                              await updatePayment(selectedPayment.id || selectedPayment.raw?.id || selectedPayment.raw?.payment_id, payload);
+                              toast.success('تم تعديل السند');
+                              setIsEditingPayment(false);
+                              setSelectedPayment(null);
+                              queryClient.invalidateQueries(['customers-statement', id]);
+                            } catch (e) {
+                              toast.error('فشل حفظ التعديلات');
+                            }
+                          }}
+                        >
+                          حفظ
+                        </Button>
+                        <Button type="button" variant="outline" onClick={() => setIsEditingPayment(false)}>
+                          إلغاء
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <LoadingSpinner />
+              )}
         </DialogContent>
       </Dialog>
     </div>

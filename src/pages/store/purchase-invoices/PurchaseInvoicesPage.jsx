@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BanknoteArrowDown, Eye, Plus, Search, XCircle, Edit, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { createSupplierPayment } from '../../../api/payments';
+import { createSupplierPayment, getAllSupplierPayments, updatePayment, deletePayment } from '../../../api/payments';
 import { cancelPurchaseInvoice, getPurchaseInvoices } from '../../../api/purchaseInvoices';
 import { getSuppliers } from '../../../api/suppliers';
 import BalanceDisplay from '../../../components/shared/BalanceDisplay';
@@ -113,6 +113,11 @@ export default function PurchaseInvoicesPage() {
   const [isSupplierPaymentModalOpen, setIsSupplierPaymentModalOpen] = useState(false);
   const [supplierSearchTerm, setSupplierSearchTerm] = useState('');
   const [debouncedSupplierSearchTerm, setDebouncedSupplierSearchTerm] = useState('');
+  const [paymentsTabList, setPaymentsTabList] = useState([]);
+  const [paymentsTabLoading, setPaymentsTabLoading] = useState(false);
+  const [paymentsModalOpen, setPaymentsModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editingSaving, setEditingSaving] = useState(false);
 
   const {
     register: registerSupplierPayment,
@@ -212,6 +217,34 @@ export default function PurchaseInvoicesPage() {
     return () => clearTimeout(timeoutId);
   }, [supplierSearchTerm]);
 
+  // load all supplier payments when Payments tab active
+  useEffect(() => {
+    if (activeTab !== 'payments') {
+      setPaymentsTabList([]);
+      return;
+    }
+
+    let mounted = true;
+    (async () => {
+      setPaymentsTabLoading(true);
+      try {
+        const res = await getAllSupplierPayments();
+        const payload = res?.data?.data ?? res?.data ?? [];
+        const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+        if (mounted) setPaymentsTabList(items);
+      } catch (e) {
+        toast.error('تعذر جلب سندات الموردين');
+        if (mounted) setPaymentsTabList([]);
+      } finally {
+        if (mounted) setPaymentsTabLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [activeTab]);
+
   const onCancelConfirm = () => {
     const reason = cancelReason.trim();
     if (!reason) {
@@ -230,6 +263,48 @@ export default function PurchaseInvoicesPage() {
 
   const onSubmitSupplierPayment = (values) => {
     supplierPaymentMutation.mutate(values);
+  };
+
+  const handleSavePayment = async (payment) => {
+    setEditingSaving(true);
+    try {
+      const payload = {
+        amount: Number(payment.amount) || 0,
+        description: payment.notes ?? payment.description ?? undefined,
+        receipt_number: payment.receipt_number ?? payment.receiptNumber ?? undefined,
+        transaction_date: payment.date || payment.transaction_date || undefined,
+      };
+      await updatePayment(payment.id, payload);
+      toast.success('تم تعديل السند');
+      setEditingPayment(null);
+      // refresh list
+      const res = await getAllSupplierPayments();
+      const payloadRes = res?.data?.data ?? res?.data ?? [];
+      const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
+      setPaymentsTabList(items);
+      queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+    } catch (e) {
+      toast.error('فشل تعديل السند');
+    } finally {
+      setEditingSaving(false);
+    }
+  };
+
+  const handleDeletePayment = async (payment) => {
+    const ok = window.confirm('هل متأكد من حذف السند؟ لا يمكن التراجع');
+    if (!ok) return;
+    try {
+      await deletePayment(payment.id);
+      toast.success('تم حذف السند');
+      // refresh list
+      const res = await getAllSupplierPayments();
+      const payloadRes = res?.data?.data ?? res?.data ?? [];
+      const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
+      setPaymentsTabList(items);
+      queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+    } catch (e) {
+      toast.error('فشل حذف السند');
+    }
   };
 
   const columns = useMemo(
@@ -348,6 +423,23 @@ export default function PurchaseInvoicesPage() {
 
     return base;
   }, [columns]);
+
+  const supplierPaymentsColumns = [
+    { key: 'receipt', label: 'رقم السند', render: (_, row) => row.receipt_number ?? row.payment_number ?? row.id },
+    { key: 'date', label: 'التاريخ', render: (value, row) => row.date ?? row.created_at ?? '—' },
+    { key: 'amount', label: 'المبلغ', render: (value, row) => formatCurrency(row.amount ?? row.debit ?? row.credit ?? 0) },
+    { key: 'desc', label: 'البيان', render: (value, row) => row.notes ?? row.description ?? row.raw?.notes ?? '—' },
+    { key: 'actions', label: 'إجراءات', render: (_, row) => (
+      <div className="flex items-center gap-2">
+        <button type="button" className="rounded-md p-2 text-primary hover:bg-primary/10" title="تعديل" onClick={() => { setPaymentsModalOpen(true); setPaymentsTabList((prev)=>prev); setEditingPayment(row); }}>
+          <Edit className="h-4 w-4" />
+        </button>
+        <button type="button" className="rounded-md p-2 text-danger hover:bg-red-50" title="حذف" onClick={() => handleDeletePayment(row)}>
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    )}
+  ];
 
   return (
     <div>
@@ -507,6 +599,145 @@ export default function PurchaseInvoicesPage() {
                             <span>إلغاء الفاتورة</span>
                           </button>
                         ) : null}
+
+                        {activeTab === 'payments' ? (
+                          <>
+                            <div className="mb-4 grid gap-3 rounded-xl border border-border bg-white p-3 md:grid-cols-3">
+                              <div className="relative md:col-span-2">
+                                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                                <Input
+                                  value={searchTerm}
+                                  onChange={(event) => {
+                                    setSearchTerm(event.target.value);
+                                    setCurrentPage(1);
+                                  }}
+                                  placeholder="بحث برقم السند أو اسم المورد..."
+                                  className="pr-9"
+                                />
+                              </div>
+
+                              <select
+                                value={statusFilter}
+                                onChange={(event) => {
+                                  setStatusFilter(event.target.value);
+                                  setCurrentPage(1);
+                                }}
+                                className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              >
+                                <option value="all">كل الحالات</option>
+                                <option value="confirmed">مؤكد</option>
+                                <option value="cancelled">ملغي</option>
+                              </select>
+                            </div>
+
+                            {paymentsTabLoading ? (
+                              <LoadingSpinner />
+                            ) : (
+                              <>
+                                <div className="hidden md:block">
+                                  <DataTable columns={supplierPaymentsColumns} data={paymentsTabList} loading={paymentsTabLoading} emptyMessage="لا توجد سندات" />
+                                </div>
+
+                                <div className="block md:hidden space-y-3">
+                                  {paymentsTabList.length === 0 ? (
+                                    <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">لا توجد سندات</div>
+                                  ) : (
+                                    paymentsTabList.map((p) => (
+                                      <div key={p.id} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3">
+                                        <div className="flex items-center justify-between">
+                                          <span className="font-mono font-bold text-text">{p.receipt_number ?? p.payment_number ?? p.id}</span>
+                                          <div className="flex items-center gap-2">
+                                            <button type="button" onClick={() => { setPaymentsModalOpen(true); setEditingPayment(p); }} className="rounded-md p-2 text-primary hover:bg-primary/10"><Edit className="h-4 w-4" /></button>
+                                            <button type="button" onClick={() => handleDeletePayment(p)} className="rounded-md p-2 text-danger hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
+                                          </div>
+                                        </div>
+                                        <div className="text-sm text-text-muted">{p.date ?? p.created_at ?? '—'}</div>
+                                        <div className="text-lg font-semibold">{formatCurrency(p.amount ?? p.debit ?? p.credit ?? 0)}</div>
+                                        <div className="text-sm text-text-muted">{p.notes ?? p.description ?? '—'}</div>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </>
+                        ) : null}
+
+                        <Dialog open={paymentsModalOpen} onOpenChange={(open) => !open && setPaymentsModalOpen(false)}>
+                          <DialogContent className="max-w-3xl">
+                            <DialogHeader>
+                              <DialogTitle>سندات المورد</DialogTitle>
+                              <DialogDescription>قائمة سندات الموردين</DialogDescription>
+                            </DialogHeader>
+
+                            {paymentsTabLoading ? (
+                              <LoadingSpinner />
+                            ) : (
+                              <div className="space-y-4">
+                                {paymentsTabList.length === 0 ? (
+                                  <div className="text-sm text-text-muted">لا توجد سندات</div>
+                                ) : (
+                                  <div className="w-full overflow-x-auto">
+                                    <table className="w-full text-sm table-auto">
+                                      <thead>
+                                        <tr className="text-left text-text-muted">
+                                          <th className="py-1 pr-3">#</th>
+                                          <th className="py-1 pr-3">التاريخ</th>
+                                          <th className="py-1 pr-3">المبلغ</th>
+                                          <th className="py-1 pr-3">البيان</th>
+                                          <th className="py-1 pr-3">إجراءات</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {paymentsTabList.map((p) => (
+                                          <tr key={p.id} className="border-t">
+                                            <td className="py-2 pr-3">{p.receipt_number ?? p.payment_number ?? p.id}</td>
+                                            <td className="py-2 pr-3">{p.date ?? p.created_at ?? '—'}</td>
+                                            <td className="py-2 pr-3">{formatCurrency(p.amount ?? p.debit ?? p.credit ?? 0)}</td>
+                                            <td className="py-2 pr-3">{p.notes ?? p.description ?? p.raw?.notes ?? '—'}</td>
+                                            <td className="py-2 pr-3">
+                                              <div className="flex gap-2">
+                                                <button type="button" className="rounded-md border px-2 py-1 text-xs" onClick={() => setEditingPayment(p)}>تعديل</button>
+                                                <button type="button" className="rounded-md border px-2 py-1 text-xs text-danger" onClick={() => handleDeletePayment(p)}>حذف</button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+
+                                {editingPayment ? (
+                                  <div className="rounded-lg border border-border bg-white p-4">
+                                    <div className="grid gap-2 md:grid-cols-4">
+                                      <div>
+                                        <label className="mb-1 block text-sm font-medium text-text">المبلغ</label>
+                                        <Input value={editingPayment.amount ?? editingPayment.debit ?? editingPayment.credit ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, amount: e.target.value }))} />
+                                      </div>
+                                      <div>
+                                        <label className="mb-1 block text-sm font-medium text-text">التاريخ</label>
+                                        <Input type="date" value={editingPayment.date ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, date: e.target.value }))} />
+                                      </div>
+                                      <div>
+                                        <label className="mb-1 block text-sm font-medium text-text">رقم السند</label>
+                                        <Input value={editingPayment.receipt_number ?? editingPayment.receiptNumber ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, receipt_number: e.target.value }))} />
+                                      </div>
+                                      <div>
+                                        <label className="mb-1 block text-sm font-medium text-text">البيان</label>
+                                        <Input value={editingPayment.notes ?? editingPayment.description ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, notes: e.target.value }))} />
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2 pt-3">
+                                      <Button type="button" onClick={() => handleSavePayment(editingPayment)} disabled={editingSaving}>{editingSaving ? 'جاري الحفظ...' : 'حفظ'}</Button>
+                                      <Button type="button" variant="outline" onClick={() => setEditingPayment(null)} disabled={editingSaving}>إلغاء</Button>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
+                          </DialogContent>
+                        </Dialog>
 
                         {invoice?.status === 'cancelled' ? (
                           <button
