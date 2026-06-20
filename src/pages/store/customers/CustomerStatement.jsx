@@ -545,8 +545,8 @@ export default function CustomerStatement() {
                             try {
                               const payload = {
                                 amount: Number(editAmount) || 0,
-                                date: editDate || undefined,
-                                notes: editNotes || undefined,
+                                transaction_date: editDate || undefined,
+                                description: editNotes || undefined,
                               };
                               await updatePayment(selectedPayment.id || selectedPayment.raw?.id || selectedPayment.raw?.payment_id, payload);
                               toast.success('تم تعديل السند');

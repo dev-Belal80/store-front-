@@ -245,6 +245,7 @@ export default function PurchaseInvoicesPage() {
           ...it,
           supplier_name: it.supplier_name ?? it.party_name ?? suppliersForLookup.find((s) => Number(s.id) === Number(it.party_id))?.name,
           notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+          date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
         }));
         if (mounted) setPaymentsTabList(enriched);
       } catch (e) {
@@ -308,6 +309,7 @@ export default function PurchaseInvoicesPage() {
         ...it,
         supplier_name: it.supplier_name ?? it.party_name ?? suppliersForLookup.find((s) => Number(s.id) === Number(it.party_id))?.name,
         notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+        date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
       }));
       setPaymentsTabList(enriched);
       queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
@@ -348,95 +350,92 @@ export default function PurchaseInvoicesPage() {
     }
   };
 
-  const columns = useMemo(
-    () => [
-      {
-        key: 'number',
-        label: 'رقم الفاتورة',
-        render: (_, row) => getInvoiceNumber(row),
+  const columns = useMemo(() => [
+    {
+      key: 'number',
+      label: 'رقم الفاتورة',
+      render: (_, row) => getInvoiceNumber(row),
+    },
+    {
+      key: 'date',
+      label: 'التاريخ',
+      render: (value, row) => {
+        const dateValue = value || getInvoiceDate(row);
+        return dateValue ? formatDate(dateValue) : '—';
       },
-      {
-        key: 'date',
-        label: 'التاريخ',
-        render: (value, row) => {
-          const dateValue = value || getInvoiceDate(row);
-          return dateValue ? formatDate(dateValue) : '—';
-        },
-      },
-      {
-        key: 'supplier',
-        label: 'المورد',
-        render: (_, row) => getSupplierName(row),
-      },
-      {
-        key: 'total',
-        label: 'الإجمالي',
-        render: (value, row) => formatCurrency(value ?? getInvoiceAmount(row, 'total')),
-      },
-      {
-        key: 'paid',
-        label: 'المدفوع',
-        render: (value, row) => formatCurrency(value ?? getInvoiceAmount(row, 'paid')),
-      },
-      {
-        key: 'status',
-        label: 'الحالة',
-        render: (value) => <StatusBadge status={value || 'confirmed'} />,
-      },
-      {
-        key: 'actions',
-        label: 'إجراءات',
-        render: (_, row) => (
-          <div className="flex items-center gap-1">
+    },
+    {
+      key: 'supplier',
+      label: 'المورد',
+      render: (_, row) => getSupplierName(row),
+    },
+    {
+      key: 'total',
+      label: 'الإجمالي',
+      render: (value, row) => formatCurrency(value ?? getInvoiceAmount(row, 'total')),
+    },
+    {
+      key: 'paid',
+      label: 'المدفوع',
+      render: (value, row) => formatCurrency(value ?? getInvoiceAmount(row, 'paid')),
+    },
+    {
+      key: 'status',
+      label: 'الحالة',
+      render: (value) => <StatusBadge status={value || 'confirmed'} />,
+    },
+    {
+      key: 'actions',
+      label: 'إجراءات',
+      render: (_, row) => (
+        <div className="flex items-center gap-1">
+          <Link
+            to={`/store/purchase-invoices/${row.id}`}
+            className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
+            title="عرض"
+          >
+            <Eye className="h-4 w-4" />
+          </Link>
+
+          {row?.status === 'confirmed' ? (
             <Link
-              to={`/store/purchase-invoices/${row.id}`}
-              className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
-              title="عرض"
+              to={`/store/purchase-invoices/${row.id}/edit`}
+              className="rounded-md p-2 text-primary hover:bg-primary/10"
+              title="تعديل"
             >
-              <Eye className="h-4 w-4" />
+              <Edit className="h-4 w-4" />
             </Link>
+          ) : null}
 
-            {row?.status === 'confirmed' ? (
-              <Link
-                to={`/store/purchase-invoices/${row.id}/edit`}
-                className="rounded-md p-2 text-primary hover:bg-primary/10"
-                title="تعديل"
-              >
-                <Edit className="h-4 w-4" />
-              </Link>
-            ) : null}
+          {row?.status !== 'cancelled' ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCancellingInvoice(row);
+                setCancelReason('');
+                setCancelReasonError('');
+              }}
+              className="rounded-md p-2 text-red-600 hover:bg-red-50"
+              title="إلغاء"
+            >
+              <XCircle className="h-4 w-4" />
+            </button>
+          ) : null}
 
-            {row?.status !== 'cancelled' ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setCancellingInvoice(row);
-                  setCancelReason('');
-                  setCancelReasonError('');
-                }}
-                className="rounded-md p-2 text-red-600 hover:bg-red-50"
-                title="إلغاء"
-              >
-                <XCircle className="h-4 w-4" />
-              </button>
-            ) : null}
-
-            {row?.status === 'cancelled' ? (
-              <button
-                type="button"
-                onClick={() => deleteMutation.mutate(row.id)}
-                className="rounded-md p-2 text-danger hover:bg-red-50"
-                title="حذف نهائي"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
-        ),
-      },
-    ],
-    []
-  );
+          {row?.status === 'cancelled' ? (
+            <button
+              type="button"
+              onClick={() => deleteMutation.mutate(row.id)}
+              className="rounded-md p-2 text-danger hover:bg-red-50"
+              title="حذف نهائي"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+      ),
+    },
+  ], []);
 
   const paymentsColumns = useMemo(() => {
     const base = columns.filter((c) => c.key !== 'actions');
@@ -758,7 +757,7 @@ export default function PurchaseInvoicesPage() {
                                       </div>
                                       <div>
                                         <label className="mb-1 block text-sm font-medium text-text">التاريخ</label>
-                                        <Input type="date" value={editingPayment.date ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, date: e.target.value }))} />
+                                        <Input type="date" value={editingPayment.date ?? editingPayment.transaction_date ?? editingPayment.payment_date ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, date: e.target.value }))} />
                                       </div>
                                       <div>
                                         <label className="mb-1 block text-sm font-medium text-text">رقم السند</label>
@@ -983,66 +982,30 @@ export default function PurchaseInvoicesPage() {
         </>
       ) : activeTab === 'payments' ? (
         <>
-          {purchaseInvoicesQuery.isLoading ? (
+          {paymentsTabLoading ? (
             <LoadingSpinner />
           ) : (
             <>
               <div className="hidden md:block">
-                <DataTable
-                  columns={paymentsColumns}
-                  data={invoices.filter(inv => Number(getInvoiceRemaining(inv)) > 0)}
-                  loading={purchaseInvoicesQuery.isFetching}
-                  emptyMessage="لا توجد فواتير للسداد"
-                />
+                <DataTable columns={supplierPaymentsColumns} data={paymentsTabList} loading={paymentsTabLoading} emptyMessage="لا توجد سندات" />
               </div>
 
               <div className="block md:hidden space-y-3">
-                {invoices.filter(inv => Number(getInvoiceRemaining(inv)) > 0).length === 0 ? (
-                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">لا توجد فواتير للسداد</div>
+                {paymentsTabList.length === 0 ? (
+                  <div className="rounded-xl border border-border bg-white p-8 text-center text-text-muted">لا توجد سندات</div>
                 ) : (
-                  invoices.filter(inv => Number(getInvoiceRemaining(inv)) > 0).map((invoice) => (
-                    <div key={invoice.id} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3">
+                  paymentsTabList.map((p) => (
+                    <div key={p.id} className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-text">{getInvoiceNumber(invoice)}</span>
-                        <StatusBadge status={invoice.status || 'confirmed'} />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div className="text-text-muted">المورد:</div>
-                        <div className="font-medium text-text text-left">{getSupplierName(invoice)}</div>
-
-                        <div className="text-text-muted">التاريخ:</div>
-                        <div className="text-text text-left font-mono">{getInvoiceDate(invoice) ? formatDate(getInvoiceDate(invoice)) : '—'}</div>
-                      </div>
-
-                      <hr className="border-border" />
-
-                      <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                        <div className="rounded-lg bg-slate-50 p-2">
-                          <div className="text-text-muted mb-1">الإجمالي</div>
-                          <div className="font-semibold text-text">{formatCurrency(getInvoiceAmount(invoice, 'total'))}</div>
-                        </div>
-                        <div className="rounded-lg bg-amber-50/50 p-2 text-amber-800">
-                          <div className="text-amber-600 mb-1">المتبقي</div>
-                          <div className="font-semibold">{formatCurrency(getInvoiceRemaining(invoice))}</div>
+                        <span className="font-mono font-bold text-text">{p.receipt_number ?? p.payment_number ?? p.id}</span>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={() => { setPaymentsModalOpen(true); setEditingPayment(p); }} className="rounded-md p-2 text-primary hover:bg-primary/10"><Edit className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => handleDeletePayment(p)} className="rounded-md p-2 text-danger hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       </div>
-
-                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const sid = getSupplierId(invoice);
-                            setSupplierPaymentValue('party_id', sid);
-                            setSupplierPaymentValue('invoice_id', invoice.id);
-                            setIsSupplierPaymentModalOpen(true);
-                          }}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-50 transition-colors h-9"
-                        >
-                          <BanknoteArrowDown className="h-4 w-4" />
-                          <span>سداد</span>
-                        </button>
-                      </div>
+                      <div className="text-sm text-text-muted">{p.payment_date ?? p.date ?? p.transaction_date ?? p.created_at ?? '—'}</div>
+                      <div className="text-lg font-semibold">{formatCurrency(p.amount ?? p.debit ?? p.credit ?? 0)}</div>
+                      <div className="text-sm text-text-muted">{p.notes ?? p.description ?? '—'}</div>
                     </div>
                   ))
                 )}
