@@ -67,7 +67,7 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const getInvoiceDate = (invoice) => invoice?.date || invoice?.invoice_date || invoice?.created_at || null;
+const getInvoiceDate = (invoice) => invoice?.invoice_date || invoice?.date || invoice?.sort_date || invoice?.created_at || null;
 const getInvoiceNumber = (invoice) => invoice?.invoice_number || invoice?.number || `INV-${invoice?.id}`;
 const getCustomerId = (invoice) => invoice?.customer?.id || invoice?.customer_id || invoice?.client?.id || invoice?.client_id || 0;
 const getCustomerName = (invoice) =>
@@ -282,7 +282,16 @@ export default function SalesInvoicesPage() {
         const res = await getAllCustomerPayments();
         const payload = res?.data?.data ?? res?.data ?? [];
         const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-        if (mounted) setPaymentsTabList(items);
+        const customersForLookup = extractItems(customersQuery.data);
+        const enriched = items.map((it) => {
+          const customerName = it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name;
+          return {
+            ...it,
+            customer_name: customerName,
+            notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+          };
+        });
+        if (mounted) setPaymentsTabList(enriched);
       } catch (e) {
         toast.error('تعذر جلب التحصيلات');
         if (mounted) setPaymentsTabList([]);
@@ -294,15 +303,15 @@ export default function SalesInvoicesPage() {
     return () => {
       mounted = false;
     };
-  }, [activeTab]);
+  }, [activeTab, customersQuery.data]);
 
   const handleSavePayment = async (payment) => {
     setEditingSaving(true);
     try {
       const payload = {
         amount: Number(payment.amount) || 0,
-        date: payment.date || payment.transaction_date || undefined,
-        notes: payment.notes || payment.description || undefined,
+        transaction_date: payment.date || payment.transaction_date || undefined,
+        description: payment.notes || payment.description || undefined,
         receipt_number: payment.receipt_number ?? payment.payment_number ?? undefined,
       };
       await updatePayment(payment.id, payload);
@@ -313,7 +322,13 @@ export default function SalesInvoicesPage() {
       const res = await getAllCustomerPayments();
       const payloadRes = res?.data?.data ?? res?.data ?? [];
       const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
-      setPaymentsTabList(items);
+      const customersForLookup = extractItems(customersQuery.data);
+      const enriched = items.map((it) => ({
+        ...it,
+        customer_name: it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name,
+        notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+      }));
+      setPaymentsTabList(enriched);
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
     } catch (e) {
       toast.error('فشل تعديل السند');
@@ -332,7 +347,13 @@ export default function SalesInvoicesPage() {
       const res = await getAllCustomerPayments();
       const payloadRes = res?.data?.data ?? res?.data ?? [];
       const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
-      setPaymentsTabList(items);
+      const customersForLookup = extractItems(customersQuery.data);
+      const enriched = items.map((it) => ({
+        ...it,
+        customer_name: it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name,
+        notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+      }));
+      setPaymentsTabList(enriched);
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
     } catch (e) {
       toast.error('فشل حذف السند');
@@ -1089,9 +1110,11 @@ export default function SalesInvoicesPage() {
                 <DataTable
                   columns={[
                     { key: 'receipt', label: 'رقم السند', render: (_, row) => row.receipt_number ?? row.payment_number ?? row.id },
-                    { key: 'date', label: 'التاريخ', render: (value, row) => row.date ?? row.created_at ?? '—' },
+                    { key: 'date', label: 'التاريخ', render: (value, row) => row.date ?? row.payment_date ?? '—' },
                     { key: 'amount', label: 'المبلغ', render: (value, row) => formatCurrency(row.amount ?? row.debit ?? row.credit ?? 0) },
-                    { key: 'desc', label: 'البيان', render: (value, row) => row.notes ?? row.description ?? row.raw?.notes ?? '—' },
+                    { key: 'customer_name', label: 'العميل', render: (value, row) => row.customer_name ?? row.party_name ?? row.customer?.name ?? row.party?.name ?? '—' },
+
+                    { key: 'desc', label: 'البيان', render: (value, row) => row.notes ?? row.description ?? row.statement ?? row.note ?? row.raw?.notes ?? '—' },
                     { key: 'actions', label: 'إجراءات', render: (_, row) => (
                       <div className="flex items-center gap-2">
                         <button type="button" className="rounded-md p-2 text-primary hover:bg-primary/10" title="تعديل" onClick={() => { setEditingPayment(row); setPaymentsModalOpen(true); }}>
@@ -1124,9 +1147,10 @@ export default function SalesInvoicesPage() {
                           <button type="button" onClick={() => handleDeletePayment(p)} className="rounded-md p-2 text-danger hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
                         </div>
                       </div>
-                      <div className="text-sm text-text-muted">{p.date ?? p.created_at ?? '—'}</div>
+                      <div className="text-sm text-text-muted">{p.date ?? p.payment_date ?? p.transaction_date ?? '—'}</div>
                       <div className="text-lg font-semibold">{formatCurrency(p.amount ?? p.debit ?? p.credit ?? 0)}</div>
-                      <div className="text-sm text-text-muted">{p.notes ?? p.description ?? '—'}</div>
+                      <div className="text-sm text-text-muted">{p.customer_name}</div>
+                      <div className="text-sm text-text-muted">{ p.description}</div>
                     </div>
                   ))
                 )}
@@ -1153,8 +1177,14 @@ export default function SalesInvoicesPage() {
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text">التاريخ</label>
-                  <Input type="date" value={editingPayment.date ?? editingPayment.transaction_date ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, date: e.target.value }))} />
+                  <Input type="date" value={editingPayment.payment_date ?? editingPayment.transaction_date ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, payment_date: e.target.value }))} />
                 </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-text">الاسم</label>
+                  <Input type="text" value={editingPayment.party_name ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, party_name: e.target.value }))} />
+                </div>
+                
               </div>
 
               <div className="space-y-2">

@@ -67,7 +67,7 @@ const normalizeDateKey = (value) => {
   }
 };
 
-const getInvoiceDate = (invoice) => invoice?.invoice_date || invoice?.date || invoice?.created_at || null;
+const getInvoiceDate = (invoice) => invoice?.invoice_date || invoice?.date || invoice?.sort_date || invoice?.created_at || null;
 const getInvoiceStatus = (invoice) => String(invoice?.status || '').toLowerCase();
 const isConfirmedInvoice = (invoice) => {
   const status = getInvoiceStatus(invoice);

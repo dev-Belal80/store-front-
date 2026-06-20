@@ -367,7 +367,7 @@ export default function PaymentsPage() {
                             <tr key={inv.id} className="border-t">
                               <td className="py-2 pr-3">{inv.id}</td>
                               <td className="py-2 pr-3">{inv.number ?? inv.reference ?? '-'}</td>
-                              <td className="py-2 pr-3">{inv.date ?? inv.created_at ?? '-'}</td>
+                              <td className="py-2 pr-3">{inv.invoice_date ?? inv.date ?? inv.created_at ?? '-'}</td>
                               <td className="py-2 pr-3">{inv.total ?? inv.amount ?? '-'}</td>
                               <td className="py-2 pr-3">{inv.remaining_amount ?? inv.remaining ?? inv.remainingAmount ?? 0}</td>
                               <td className="py-2 pr-3">
@@ -471,7 +471,7 @@ export default function PaymentsPage() {
                         <tr key={inv.id} className="border-t">
                           <td className="py-2 pr-3">{inv.id}</td>
                           <td className="py-2 pr-3">{inv.number ?? inv.reference ?? '-'}</td>
-                          <td className="py-2 pr-3">{inv.date ?? inv.created_at ?? '-'}</td>
+                          <td className="py-2 pr-3">{inv.invoice_date ?? inv.date ?? inv.created_at ?? '-'}</td>
                           <td className="py-2 pr-3">{inv.total ?? inv.amount ?? '-'}</td>
                           <td className="py-2 pr-3">{inv.remaining_amount ?? inv.remaining ?? inv.remainingAmount ?? 0}</td>
                           <td className="py-2 pr-3">
@@ -520,7 +520,7 @@ export default function PaymentsPage() {
               ) : (
                 <div className="space-y-2">
                   <div><strong>المرجع:</strong> {invoiceDetails.number ?? invoiceDetails.reference ?? '-'}</div>
-                  <div><strong>التاريخ:</strong> {invoiceDetails.date ?? invoiceDetails.created_at ?? '-'}</div>
+                  <div><strong>التاريخ:</strong> {invoiceDetails.invoice_date ?? invoiceDetails.date ?? invoiceDetails.created_at ?? '-'}</div>
                   <div><strong>الإجمالي:</strong> {invoiceDetails.total ?? invoiceDetails.amount ?? '-'}</div>
                   <div><strong>المتبقي:</strong> {invoiceDetails.remaining_amount ?? invoiceDetails.remaining ?? invoiceDetails.remainingAmount ?? 0}</div>
                   {Array.isArray(invoiceDetails.items) && (

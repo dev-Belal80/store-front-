@@ -54,7 +54,7 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const getInvoiceDate = (invoice) => invoice?.date || invoice?.invoice_date || invoice?.created_at || null;
+const getInvoiceDate = (invoice) => invoice?.invoice_date || invoice?.date || invoice?.sort_date || invoice?.created_at || null;
 const getInvoiceNumber = (invoice) => invoice?.invoice_number || invoice?.number || `#${invoice?.id}`;
 const getSupplierName = (invoice) =>
   invoice?.supplier?.name || invoice?.supplier_name || invoice?.vendor?.name || invoice?.vendor_name || '—';
@@ -231,7 +231,22 @@ export default function PurchaseInvoicesPage() {
         const res = await getAllSupplierPayments();
         const payload = res?.data?.data ?? res?.data ?? [];
         const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-        if (mounted) setPaymentsTabList(items);
+        // try to resolve supplier names by fetching suppliers list
+        let suppliersForLookup = [];
+        try {
+          const sres = await getSuppliers(1, { per_page: 1000 });
+          const spayload = sres?.data?.data ?? sres?.data ?? [];
+          suppliersForLookup = Array.isArray(spayload?.data) ? spayload.data : Array.isArray(spayload) ? spayload : [];
+        } catch (err) {
+          suppliersForLookup = [];
+        }
+
+        const enriched = items.map((it) => ({
+          ...it,
+          supplier_name: it.supplier_name ?? it.party_name ?? suppliersForLookup.find((s) => Number(s.id) === Number(it.party_id))?.name,
+          notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+        }));
+        if (mounted) setPaymentsTabList(enriched);
       } catch (e) {
         toast.error('تعذر جلب سندات الموردين');
         if (mounted) setPaymentsTabList([]);
@@ -281,7 +296,20 @@ export default function PurchaseInvoicesPage() {
       const res = await getAllSupplierPayments();
       const payloadRes = res?.data?.data ?? res?.data ?? [];
       const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
-      setPaymentsTabList(items);
+      let suppliersForLookup = [];
+      try {
+        const sres = await getSuppliers(1, { per_page: 1000 });
+        const spayload = sres?.data?.data ?? sres?.data ?? [];
+        suppliersForLookup = Array.isArray(spayload?.data) ? spayload.data : Array.isArray(spayload) ? spayload : [];
+      } catch (err) {
+        suppliersForLookup = [];
+      }
+      const enriched = items.map((it) => ({
+        ...it,
+        supplier_name: it.supplier_name ?? it.party_name ?? suppliersForLookup.find((s) => Number(s.id) === Number(it.party_id))?.name,
+        notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+      }));
+      setPaymentsTabList(enriched);
       queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
     } catch (e) {
       toast.error('فشل تعديل السند');
@@ -300,7 +328,20 @@ export default function PurchaseInvoicesPage() {
       const res = await getAllSupplierPayments();
       const payloadRes = res?.data?.data ?? res?.data ?? [];
       const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
-      setPaymentsTabList(items);
+      let suppliersForLookup = [];
+      try {
+        const sres = await getSuppliers(1, { per_page: 1000 });
+        const spayload = sres?.data?.data ?? sres?.data ?? [];
+        suppliersForLookup = Array.isArray(spayload?.data) ? spayload.data : Array.isArray(spayload) ? spayload : [];
+      } catch (err) {
+        suppliersForLookup = [];
+      }
+      const enriched = items.map((it) => ({
+        ...it,
+        supplier_name: it.supplier_name ?? it.party_name ?? suppliersForLookup.find((s) => Number(s.id) === Number(it.party_id))?.name,
+        notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+      }));
+      setPaymentsTabList(enriched);
       queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
     } catch (e) {
       toast.error('فشل حذف السند');
@@ -426,9 +467,9 @@ export default function PurchaseInvoicesPage() {
 
   const supplierPaymentsColumns = [
     { key: 'receipt', label: 'رقم السند', render: (_, row) => row.receipt_number ?? row.payment_number ?? row.id },
-    { key: 'date', label: 'التاريخ', render: (value, row) => row.date ?? row.created_at ?? '—' },
+    { key: 'date', label: 'التاريخ', render: (value, row) => row.payment_date ?? row.date ?? row.transaction_date ?? row.created_at ?? '—' },
     { key: 'amount', label: 'المبلغ', render: (value, row) => formatCurrency(row.amount ?? row.debit ?? row.credit ?? 0) },
-    { key: 'desc', label: 'البيان', render: (value, row) => row.notes ?? row.description ?? row.raw?.notes ?? '—' },
+    { key: 'desc', label: 'البيان', render: (value, row) => row.notes ?? row.description ?? row.statement ?? row.note ?? row.raw?.notes ?? '—' },
     { key: 'actions', label: 'إجراءات', render: (_, row) => (
       <div className="flex items-center gap-2">
         <button type="button" className="rounded-md p-2 text-primary hover:bg-primary/10" title="تعديل" onClick={() => { setPaymentsModalOpen(true); setPaymentsTabList((prev)=>prev); setEditingPayment(row); }}>
@@ -651,7 +692,7 @@ export default function PurchaseInvoicesPage() {
                                             <button type="button" onClick={() => handleDeletePayment(p)} className="rounded-md p-2 text-danger hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
                                           </div>
                                         </div>
-                                        <div className="text-sm text-text-muted">{p.date ?? p.created_at ?? '—'}</div>
+                                        <div className="text-sm text-text-muted">{p.payment_date ?? p.date ?? p.transaction_date ?? p.created_at ?? '—'}</div>
                                         <div className="text-lg font-semibold">{formatCurrency(p.amount ?? p.debit ?? p.credit ?? 0)}</div>
                                         <div className="text-sm text-text-muted">{p.notes ?? p.description ?? '—'}</div>
                                       </div>
@@ -692,7 +733,7 @@ export default function PurchaseInvoicesPage() {
                                         {paymentsTabList.map((p) => (
                                           <tr key={p.id} className="border-t">
                                             <td className="py-2 pr-3">{p.receipt_number ?? p.payment_number ?? p.id}</td>
-                                            <td className="py-2 pr-3">{p.date ?? p.created_at ?? '—'}</td>
+                                            <td className="py-2 pr-3">{p.payment_date ?? p.date ?? p.transaction_date ?? p.created_at ?? '—'}</td>
                                             <td className="py-2 pr-3">{formatCurrency(p.amount ?? p.debit ?? p.credit ?? 0)}</td>
                                             <td className="py-2 pr-3">{p.notes ?? p.description ?? p.raw?.notes ?? '—'}</td>
                                             <td className="py-2 pr-3">
