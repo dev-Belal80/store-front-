@@ -140,6 +140,11 @@ export default function SalesInvoicesPage() {
   const [paymentsTabLoading, setPaymentsTabLoading] = useState(false);
   const [editingPayment, setEditingPayment] = useState(null);
   const [paymentsModalOpen, setPaymentsModalOpen] = useState(false);
+  useEffect(() => {
+    // debug: track modal open state
+    // eslint-disable-next-line no-console
+    console.log('SalesPaymentsModalOpen=', paymentsModalOpen);
+  }, [paymentsModalOpen]);
   const [editingSaving, setEditingSaving] = useState(false);
 
   const {
@@ -289,6 +294,7 @@ export default function SalesInvoicesPage() {
             ...it,
             customer_name: customerName,
             notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+            date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
           };
         });
         if (mounted) setPaymentsTabList(enriched);
@@ -310,7 +316,7 @@ export default function SalesInvoicesPage() {
     try {
       const payload = {
         amount: Number(payment.amount) || 0,
-        transaction_date: payment.date || payment.transaction_date || undefined,
+        transaction_date: payment.date || payment.payment_date || payment.transaction_date || undefined,
         description: payment.notes || payment.description || undefined,
         receipt_number: payment.receipt_number ?? payment.payment_number ?? undefined,
       };
@@ -327,6 +333,7 @@ export default function SalesInvoicesPage() {
         ...it,
         customer_name: it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name,
         notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+        date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
       }));
       setPaymentsTabList(enriched);
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
@@ -352,6 +359,7 @@ export default function SalesInvoicesPage() {
         ...it,
         customer_name: it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name,
         notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+        date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
       }));
       setPaymentsTabList(enriched);
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
@@ -1177,7 +1185,7 @@ export default function SalesInvoicesPage() {
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text">التاريخ</label>
-                  <Input type="date" value={editingPayment.payment_date ?? editingPayment.transaction_date ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, payment_date: e.target.value }))} />
+                  <Input type="date" value={editingPayment.date ?? editingPayment.transaction_date ?? editingPayment.payment_date ?? ''} onChange={(e) => setEditingPayment((s) => ({ ...s, date: e.target.value }))} />
                 </div>
 
                 <div className="space-y-2">
