@@ -7,7 +7,7 @@ import { Eye, HandCoins, Plus, Search, XCircle, Edit, Trash2 } from 'lucide-reac
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getCustomers } from '../../../api/customers';
-import { createCustomerPayment, getAllCustomerPayments, updatePayment, deletePayment } from '../../../api/payments';
+import { createCustomerPayment, getAllCustomerPayments, getCustomerPayments, updatePayment, deletePayment } from '../../../api/payments';
 import { cancelSalesInvoice, getSalesInvoice, getSalesInvoices, getSalesRepsStats } from '../../../api/salesInvoices';
 import BalanceDisplay from '../../../components/shared/BalanceDisplay';
 import DataTable from '../../../components/shared/DataTable';
@@ -136,8 +136,7 @@ export default function SalesInvoicesPage() {
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [receiptSearchTerm, setReceiptSearchTerm] = useState('');
   const [debouncedReceiptSearchTerm, setDebouncedReceiptSearchTerm] = useState('');
-  const [paymentsTabList, setPaymentsTabList] = useState([]);
-  const [paymentsTabLoading, setPaymentsTabLoading] = useState(false);
+  const [paymentsCurrentPage, setPaymentsCurrentPage] = useState(1);
   const [editingPayment, setEditingPayment] = useState(null);
   const [paymentsModalOpen, setPaymentsModalOpen] = useState(false);
   useEffect(() => {
@@ -191,6 +190,58 @@ export default function SalesInvoicesPage() {
       ),
     keepPreviousData: true,
   });
+
+  const customerPaymentsQuery = useQuery({
+    queryKey: ['customer-payments', paymentsCurrentPage, filters.customer_id, filters.from, filters.to, searchTerm],
+    queryFn: async () => {
+      const res = filters.customer_id
+        ? await getCustomerPayments(filters.customer_id, { page: paymentsCurrentPage, per_page: 50 })
+        : await getAllCustomerPayments({ page: paymentsCurrentPage, per_page: 50 });
+      
+      const normalized = normalizePaginatedResponse(res);
+      let items = normalized.items;
+      const customersForLookup = extractItems(customersQuery.data);
+      let enriched = items.map((it) => {
+        const customerName = it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name;
+        return {
+          ...it,
+          customer_name: customerName,
+          notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
+          date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
+        };
+      });
+
+      // Client-side search and date filtering since backend doesn't support them for collections list
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        enriched = enriched.filter(
+          (it) =>
+            (it.receipt_number && it.receipt_number.toLowerCase().includes(term)) ||
+            (it.payment_number && it.payment_number.toLowerCase().includes(term)) ||
+            (it.customer_name && it.customer_name.toLowerCase().includes(term)) ||
+            (it.notes && it.notes.toLowerCase().includes(term)) ||
+            (it.amount && String(it.amount).includes(term))
+        );
+      }
+      if (filters.from) {
+        enriched = enriched.filter((it) => it.date && it.date >= filters.from);
+      }
+      if (filters.to) {
+        enriched = enriched.filter((it) => it.date && it.date <= filters.to);
+      }
+
+      return {
+        items: enriched,
+        meta: normalized.meta,
+      };
+    },
+    enabled: activeTab === 'collections',
+    keepPreviousData: true,
+  });
+
+  const paymentsTabList = customerPaymentsQuery.data?.items || [];
+  const paymentsTabLoading = customerPaymentsQuery.isLoading;
+  const paymentsMeta = customerPaymentsQuery.data?.meta || { page: 1, lastPage: 1, total: 0, perPage: 50 };
 
   const repsStatsQuery = useQuery({
     queryKey: ['sales-reps-stats'],
@@ -261,6 +312,7 @@ export default function SalesInvoicesPage() {
       });
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
       queryClient.invalidateQueries({ queryKey: ['sales-reps-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
     },
     onError: () => toast.error('تعذر حفظ سند القبض'),
   });
@@ -272,44 +324,6 @@ export default function SalesInvoicesPage() {
 
     return () => clearTimeout(timeoutId);
   }, [receiptSearchTerm]);
-
-  // load all customer payments when Collections tab active
-  useEffect(() => {
-    if (activeTab !== 'collections') {
-      setPaymentsTabList([]);
-      return;
-    }
-
-    let mounted = true;
-    (async () => {
-      setPaymentsTabLoading(true);
-      try {
-        const res = await getAllCustomerPayments();
-        const payload = res?.data?.data ?? res?.data ?? [];
-        const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-        const customersForLookup = extractItems(customersQuery.data);
-        const enriched = items.map((it) => {
-          const customerName = it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name;
-          return {
-            ...it,
-            customer_name: customerName,
-            notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
-            date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
-          };
-        });
-        if (mounted) setPaymentsTabList(enriched);
-      } catch (e) {
-        toast.error('تعذر جلب التحصيلات');
-        if (mounted) setPaymentsTabList([]);
-      } finally {
-        if (mounted) setPaymentsTabLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [activeTab, customersQuery.data]);
 
   const handleSavePayment = async (payment) => {
     setEditingSaving(true);
@@ -324,18 +338,7 @@ export default function SalesInvoicesPage() {
       toast.success('تم تعديل السند');
       setEditingPayment(null);
       setPaymentsModalOpen(false);
-      // refresh list
-      const res = await getAllCustomerPayments();
-      const payloadRes = res?.data?.data ?? res?.data ?? [];
-      const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
-      const customersForLookup = extractItems(customersQuery.data);
-      const enriched = items.map((it) => ({
-        ...it,
-        customer_name: it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name,
-        notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
-        date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
-      }));
-      setPaymentsTabList(enriched);
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
     } catch (e) {
       toast.error('فشل تعديل السند');
@@ -350,18 +353,7 @@ export default function SalesInvoicesPage() {
     try {
       await deletePayment(payment.id);
       toast.success('تم حذف السند');
-      // refresh list
-      const res = await getAllCustomerPayments();
-      const payloadRes = res?.data?.data ?? res?.data ?? [];
-      const items = Array.isArray(payloadRes?.data) ? payloadRes.data : Array.isArray(payloadRes) ? payloadRes : [];
-      const customersForLookup = extractItems(customersQuery.data);
-      const enriched = items.map((it) => ({
-        ...it,
-        customer_name: it.customer_name ?? it.party_name ?? customersForLookup.find((c) => Number(c.id) === Number(it.party_id))?.name,
-        notes: it.notes ?? it.description ?? it.statement ?? it.note ?? it.raw?.notes ?? undefined,
-        date: it.date ?? it.payment_date ?? it.transaction_date ?? undefined,
-      }));
-      setPaymentsTabList(enriched);
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
       queryClient.invalidateQueries({ queryKey: ['sales-invoices'] });
     } catch (e) {
       toast.error('فشل حذف السند');
@@ -1065,7 +1057,7 @@ export default function SalesInvoicesPage() {
               <Input
                 value={searchTerm}
                 onChange={(e) => {
-                  setCurrentPage(1);
+                  setPaymentsCurrentPage(1);
                   setSearchTerm(e.target.value);
                 }}
                 placeholder="بحث برقم الفاتورة أو اسم العميل..."
@@ -1076,7 +1068,7 @@ export default function SalesInvoicesPage() {
             <select
               value={filters.customer_id}
               onChange={(event) => {
-                setCurrentPage(1);
+                setPaymentsCurrentPage(1);
                 setFilters((previous) => ({ ...previous, customer_id: event.target.value }));
               }}
               className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -1093,7 +1085,7 @@ export default function SalesInvoicesPage() {
               type="date"
               value={filters.from}
               onChange={(event) => {
-                setCurrentPage(1);
+                setPaymentsCurrentPage(1);
                 setFilters((previous) => ({ ...previous, from: event.target.value }));
               }}
               className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -1103,14 +1095,14 @@ export default function SalesInvoicesPage() {
               type="date"
               value={filters.to}
               onChange={(event) => {
-                setCurrentPage(1);
+                setPaymentsCurrentPage(1);
                 setFilters((previous) => ({ ...previous, to: event.target.value }));
               }}
               className="h-11 rounded-lg border border-border bg-white px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             />
           </div>
 
-          {salesInvoicesQuery.isLoading ? (
+          {paymentsTabLoading ? (
             <LoadingSpinner />
           ) : (
             <>
@@ -1163,6 +1155,20 @@ export default function SalesInvoicesPage() {
                   ))
                 )}
               </div>
+
+              <Pagination
+                currentPage={paymentsMeta.page}
+                lastPage={paymentsMeta.lastPage}
+                total={paymentsMeta.total}
+                perPage={paymentsMeta.perPage}
+                itemLabel="سند تحصيل"
+                onPageChange={(nextPage) => {
+                  if (nextPage < 1 || nextPage > paymentsMeta.lastPage) return;
+                  setPaymentsCurrentPage(nextPage);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                isLoading={customerPaymentsQuery.isFetching}
+              />
             </>
           )}
         </>
