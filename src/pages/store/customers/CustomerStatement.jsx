@@ -17,6 +17,23 @@ import { useAuthStore } from '../../../store/authStore';
 import { formatCurrency, formatDate, getBalanceColor } from '../../../utils/formatters';
 import { normalizePaginatedResponse } from '../../../utils/pagination';
 
+const getTypeLabel = (referenceType) => {
+  const type = String(referenceType || '').toLowerCase();
+  if (type.includes('sales') && type.includes('invoice')) return 'فاتورة بيع';
+  if (type.includes('invoice')) return 'فاتورة';
+  if (type.includes('payment') || type.includes('receipt') || type.includes('customer_payment')) return 'سداد';
+  if (type.includes('credit') && type.includes('note')) return 'إشعار دائن';
+  if (type.includes('debit') && type.includes('note')) return 'إشعار مدين';
+  if (type.includes('journal')) return 'قيد يومية';
+  if (type.includes('opening') || type.includes('initial')) return 'رصيد افتتاحي';
+  return referenceType || '—';
+};
+
+const formatNumber = (num) => {
+  if (!num || num === 0) return '';
+  return new Intl.NumberFormat('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(num));
+};
+
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -345,24 +362,164 @@ export default function CustomerStatement() {
     <div className="space-y-4 print-area">
       <style>
         {`@media print {
-          .no-print { display: none !important; }
+          .no-print, .screen-only { display: none !important; }
           .print-only { display: block !important; }
-          .print-card { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
-          body { background: #fff !important; }
+          .print-card { box-shadow: none !important; border: none !important; }
+          body { background: #fff !important; margin: 0 !important; padding: 0 !important; font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif !important; }
+          .print-area { padding: 0 !important; gap: 0 !important; }
+          * { box-shadow: none !important; }
+
+          .print-report { display: block !important; direction: rtl; }
+          .print-report-header { text-align: center; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #333; }
+          .print-report-header h1 { font-size: 18px; font-weight: bold; margin: 0 0 2px 0; }
+          .print-report-header h2 { font-size: 15px; font-weight: bold; margin: 0 0 2px 0; }
+          .print-report-header p { font-size: 11px; margin: 0; color: #555; }
+
+          .print-report table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          .print-report thead th {
+            border-top: 1px solid #999;
+            border-bottom: 1px solid #999;
+            padding: 5px 8px;
+            text-align: right;
+            font-weight: bold;
+            font-size: 11px;
+            background: transparent;
+          }
+          .print-report thead th.col-num { text-align: center; }
+          .print-report thead th.col-debit,
+          .print-report thead th.col-credit,
+          .print-report thead th.col-balance { text-align: left; }
+
+          .print-report tbody td {
+            padding: 3px 8px;
+            border: none;
+            font-size: 11px;
+            vertical-align: top;
+          }
+          .print-report tbody td.col-num { text-align: center; }
+          .print-report tbody td.col-debit,
+          .print-report tbody td.col-credit,
+          .print-report tbody td.col-balance { text-align: left; font-variant-numeric: tabular-nums; }
+
+          .print-report .group-header td {
+            font-weight: bold;
+            padding-top: 8px;
+            padding-bottom: 2px;
+            font-size: 11px;
+          }
+          .print-report .indent-1 td:first-child { padding-right: 24px; }
+          .print-report .indent-2 td:first-child { padding-right: 40px; }
+
+          .print-report .total-row td {
+            border-top: 1px solid #999;
+            border-bottom: 1px solid #999;
+            font-weight: bold;
+            padding-top: 5px;
+            padding-bottom: 5px;
+          }
+          .print-report .subtotal-row td {
+            border-top: 1px solid #ccc;
+            font-weight: bold;
+            padding-top: 4px;
+            padding-bottom: 4px;
+          }
+          .print-report .grand-total-row td {
+            border-top: 2px solid #333;
+            border-bottom: 2px solid #333;
+            font-weight: bold;
+            padding-top: 6px;
+            padding-bottom: 6px;
+            font-size: 12px;
+          }
+
+          @page { margin: 15mm 10mm; size: A4; }
         }`}
       </style>
 
-      <div className="print-only mb-8 hidden text-center">
-        {store?.logo_url ? (
-          <img src={store.logo_url} alt="شعار المتجر" className="mx-auto mb-2 h-16 object-contain" />
-        ) : null}
-        <h1 className="text-2xl font-bold">{store?.print_header || store?.name || 'المتجر'}</h1>
-        {store?.print_phone ? <p>{store.print_phone}</p> : null}
-        {store?.print_address ? <p>{store.print_address}</p> : null}
+      {/* ===== PRINT-ONLY REPORT (QuickBooks style) ===== */}
+      <div className="print-report" style={{ display: 'none' }}>
+        <div className="print-report-header">
+          {store?.logo_url ? (
+            <img src={store.logo_url} alt="شعار" style={{ height: 48, margin: '0 auto 6px', display: 'block', objectFit: 'contain' }} />
+          ) : null}
+          <h1>{store?.print_header || store?.name || 'المتجر'}</h1>
+          <h2>كشف حساب تفصيلي</h2>
+          <p>حتى {formatDate(range.to)}</p>
+          {store?.print_phone ? <p>هاتف: {store.print_phone}</p> : null}
+          {store?.print_address ? <p>{store.print_address}</p> : null}
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style={{ width: '12%' }}>النوع</th>
+              <th style={{ width: '12%' }}>التاريخ</th>
+              <th className="col-num" style={{ width: '8%' }}>الرقم</th>
+              <th className="col-debit" style={{ width: '15%' }}>مدين</th>
+              <th className="col-credit" style={{ width: '15%' }}>دائن</th>
+              <th className="col-balance" style={{ width: '15%' }}>الرصيد</th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* Opening balance row */}
+            {statementRows.length > 0 && (() => {
+              const firstRow = statementRows[0];
+              const openingBalance = firstRow.balance - firstRow.debit + firstRow.credit;
+              return openingBalance !== 0 ? (
+                <tr className="group-header">
+                  <td colSpan="5"></td>
+                  <td className="col-balance">{formatNumber(openingBalance)}</td>
+                </tr>
+              ) : null;
+            })()}
+            {/* Customer group header */}
+            <tr className="group-header">
+              <td colSpan="6" style={{ paddingRight: 8 }}>{customerName}</td>
+            </tr>
+
+            {/* Transaction rows */}
+            {statementRows.map((row) => {
+              const dateVal = (() => {
+                if (row.referenceId > 0 && isSalesInvoiceType(String(row.referenceType || ''))) {
+                  if (invoiceDateMap[row.referenceId]) return formatDate(invoiceDateMap[row.referenceId]);
+                }
+                return row.date ? formatDate(row.date) : '—';
+              })();
+
+              return (
+                <tr key={row.id} className="indent-1">
+                  <td>{getTypeLabel(row.referenceType)}</td>
+                  <td>{dateVal}</td>
+                  <td className="col-num">{row.referenceId > 0 ? row.referenceId : ''}</td>
+                  <td className="col-debit">{formatNumber(row.debit)}</td>
+                  <td className="col-credit">{formatNumber(row.credit)}</td>
+                  <td className="col-balance">{formatNumber(row.balance)}</td>
+                </tr>
+              );
+            })}
+
+            {/* Customer subtotal */}
+            <tr className="subtotal-row indent-1">
+              <td colSpan="3">إجمالي {customerName}</td>
+              <td className="col-debit">{formatNumber(totals.debit)}</td>
+              <td className="col-credit">{formatNumber(totals.credit)}</td>
+              <td className="col-balance">{formatNumber(totals.closing)}</td>
+            </tr>
+
+            {/* Grand total */}
+            <tr className="grand-total-row">
+              <td colSpan="3">الإجمالي</td>
+              <td className="col-debit">{formatNumber(totals.debit)}</td>
+              <td className="col-credit">{formatNumber(totals.credit)}</td>
+              <td className="col-balance">{formatNumber(totals.closing)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <div className="rounded-xl border border-border bg-white p-4 print-card">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 no-print">
+      {/* ===== SCREEN-ONLY SECTIONS ===== */}
+      <div className="screen-only rounded-xl border border-border bg-white p-4 print-card">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <Button type="button" variant="outline" onClick={() => navigate(-1)} className="flex items-center gap-2">
             <ArrowRight className="h-4 w-4" />
             <span>رجوع</span>
@@ -379,7 +536,7 @@ export default function CustomerStatement() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-white p-4 no-print print-card">
+      <div className="screen-only rounded-xl border border-border bg-white p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className="mb-1 block text-sm font-medium text-text">من</label>
@@ -413,11 +570,13 @@ export default function CustomerStatement() {
         </div>
       </div>
 
-      {statementQuery.isLoading ? (
-        <LoadingSpinner />
-      ) : (
-        <DataTable columns={columns} data={statementRows} loading={statementQuery.isFetching} emptyMessage="لا توجد حركات" />
-      )}
+      <div className="screen-only">
+        {statementQuery.isLoading ? (
+          <LoadingSpinner />
+        ) : (
+          <DataTable columns={columns} data={statementRows} loading={statementQuery.isFetching} emptyMessage="لا توجد حركات" />
+        )}
+      </div>
 
       <PaginationControls
         className="no-print"
@@ -432,7 +591,7 @@ export default function CustomerStatement() {
         }}
       />
 
-      <div className="rounded-xl border border-border bg-white p-4 text-sm print-card">
+      <div className="screen-only rounded-xl border border-border bg-white p-4 text-sm">
         <div className="flex flex-wrap items-center gap-4">
           <span>الإجمالي مدين: {formatCurrency(totals.debit)}</span>
           <span>الإجمالي دائن: {formatCurrency(totals.credit)}</span>
