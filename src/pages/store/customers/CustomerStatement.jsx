@@ -79,11 +79,11 @@ const normalizeStatementResponse = (response) => {
 
   const pagination = statementMeta
     ? {
-        page: toNumber(statementMeta?.current_page ?? statementMeta?.page, 1),
-        perPage: toNumber(statementMeta?.per_page ?? statementMeta?.perPage, rows.length || 25),
-        total: toNumber(statementMeta?.total, rows.length),
-        lastPage: toNumber(statementMeta?.last_page ?? statementMeta?.lastPage, 1),
-      }
+      page: toNumber(statementMeta?.current_page ?? statementMeta?.page, 1),
+      perPage: toNumber(statementMeta?.per_page ?? statementMeta?.perPage, rows.length || 25),
+      total: toNumber(statementMeta?.total, rows.length),
+      lastPage: toNumber(statementMeta?.last_page ?? statementMeta?.lastPage, 1),
+    }
     : normalized.meta;
 
   return {
@@ -122,7 +122,7 @@ export default function CustomerStatement() {
     return (lower.includes('sales') && lower.includes('invoice')) || lower.includes('sales_invoice') || lower.includes('salesinvoice');
   };
 
-  
+
 
   const statementQuery = useQuery({
     queryKey: ['customers-statement', id, range.from, range.to, page, perPage],
@@ -149,7 +149,7 @@ export default function CustomerStatement() {
         const date = payload?.invoice_date ?? payload?.date ?? null;
         if (date) setInvoiceDateMap((prev) => ({ ...prev, [invoiceId]: date }));
       })
-      .catch(() => {});
+      .catch(() => { });
   };
 
   useEffect(() => {
@@ -208,16 +208,26 @@ export default function CustomerStatement() {
         runningBalance += debit - credit;
       }
 
+      const refType = String(item?.reference_type ?? item?.referenceType ?? '').toLowerCase();
+      const isPaymentRow =
+        refType.includes('payment') || refType.includes('receipt') || refType.includes('customer_payment');
+
+      const date = isPaymentRow
+        ? item?.payment_date ?? item?.transaction_date ?? item?.date ?? null
+        : item?.invoice_date ?? item?.date ?? item?.transaction_date ?? null;
+
       return {
         id: item?.id ?? `row-${index}`,
-        date:
-          item?.invoice_date ?? item?.date ?? item?.transaction_date ?? null,
+        date,
         description: item?.description ?? item?.statement ?? item?.notes ?? '—',
         debit,
         credit,
         balance: runningBalance,
         referenceType: item?.reference_type ?? item?.referenceType ?? null,
         referenceId: toNumber(item?.reference_id ?? item?.referenceId, 0),
+        paymentNumber: item?.payment_number ?? item?.receipt_number ?? null,
+        invoiceNumber: item?.invoice_number ?? null,
+        isPaymentRow,
         raw: item,
       };
     });
@@ -256,15 +266,28 @@ export default function CustomerStatement() {
       render: (value, row) => {
         const type = String(row.referenceType || '').toLowerCase();
 
-        // If this row references an invoice, prefer the invoice's date.
+        // Payment rows: use the date already resolved from payment_date/transaction_date.
+        if (row.isPaymentRow) {
+          return value ? formatDate(value) : '—';
+        }
+
+        // Invoice rows: prefer the invoice's own date fetched separately.
         if (row.referenceId > 0 && isSalesInvoiceType(type)) {
           if (invoiceDateMap[row.referenceId]) return formatDate(invoiceDateMap[row.referenceId]);
-          // Kick off fetch for the invoice date and show placeholder until available.
           ensureInvoiceDate(row.referenceId);
           return '—';
         }
 
         return value ? formatDate(value) : '—';
+      },
+    },
+    {
+      key: 'reference_number',
+      label: 'الرقم',
+      render: (_, row) => {
+        return row.isPaymentRow 
+          ? (row.paymentNumber || row.referenceId || '—')
+          : (row.invoiceNumber || row.referenceId || '—');
       },
     },
     {
@@ -480,6 +503,11 @@ export default function CustomerStatement() {
             {/* Transaction rows */}
             {statementRows.map((row) => {
               const dateVal = (() => {
+                // Payment rows: date already resolved from payment_date/transaction_date.
+                if (row.isPaymentRow) {
+                  return row.date ? formatDate(row.date) : '—';
+                }
+                // Invoice rows: prefer fetched invoice date.
                 if (row.referenceId > 0 && isSalesInvoiceType(String(row.referenceType || ''))) {
                   if (invoiceDateMap[row.referenceId]) return formatDate(invoiceDateMap[row.referenceId]);
                 }
@@ -490,7 +518,11 @@ export default function CustomerStatement() {
                 <tr key={row.id} className="indent-1">
                   <td>{getTypeLabel(row.referenceType)}</td>
                   <td>{dateVal}</td>
-                  <td className="col-num">{row.referenceId > 0 ? row.referenceId : ''}</td>
+                  <td className="col-num">
+                    {row.isPaymentRow 
+                      ? (row.paymentNumber || row.referenceId)
+                      : (row.invoiceNumber || row.referenceId || '')}
+                  </td>
                   <td className="col-debit">{formatNumber(row.debit)}</td>
                   <td className="col-credit">{formatNumber(row.credit)}</td>
                   <td className="col-balance">{formatNumber(row.balance)}</td>
@@ -640,95 +672,95 @@ export default function CustomerStatement() {
             <DialogTitle>تفاصيل سند التحصيل</DialogTitle>
           </DialogHeader>
 
-              {selectedPayment ? (
-                <div className="space-y-3">
-                  {!isEditingPayment ? (
-                    <>
-                      <div className="text-sm">البيان: {selectedPayment.description || selectedPayment.raw?.notes || '—'}</div>
-                      <div className="text-sm">التاريخ: {formatDate(selectedPayment.date)}</div>
-                      <div className="text-sm">المبلغ: {formatCurrency(selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0)}</div>
-                      <div className="text-sm">مرجع الفاتورة: {selectedPayment.referenceId ? `#${selectedPayment.referenceId}` : '—'}</div>
-                      <div className="flex gap-2 pt-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            const amount = selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0;
-                            setEditAmount(String(amount));
-                            setEditDate(selectedPayment.date || selectedPayment.raw?.date || '');
-                            setEditNotes(selectedPayment.description || selectedPayment.raw?.notes || '');
-                            setIsEditingPayment(true);
-                          }}
-                        >
-                          تعديل
-                        </Button>
+          {selectedPayment ? (
+            <div className="space-y-3">
+              {!isEditingPayment ? (
+                <>
+                  <div className="text-sm">البيان: {selectedPayment.description || selectedPayment.raw?.notes || '—'}</div>
+                  <div className="text-sm">التاريخ: {formatDate(selectedPayment.date)}</div>
+                  <div className="text-sm">المبلغ: {formatCurrency(selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0)}</div>
+                  <div className="text-sm">مرجع الفاتورة: {selectedPayment.referenceId ? `#${selectedPayment.referenceId}` : '—'}</div>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const amount = selectedPayment.debit || selectedPayment.credit || selectedPayment.raw?.amount || 0;
+                        setEditAmount(String(amount));
+                        setEditDate(selectedPayment.date || selectedPayment.raw?.date || '');
+                        setEditNotes(selectedPayment.description || selectedPayment.raw?.notes || '');
+                        setIsEditingPayment(true);
+                      }}
+                    >
+                      تعديل
+                    </Button>
 
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          onClick={async () => {
-                            const ok = window.confirm('هل متأكد من حذف سند التحصيل؟ لا يمكن التراجع');
-                            if (!ok) return;
-                            try {
-                              await deletePayment(selectedPayment.id || selectedPayment.raw?.id || selectedPayment.raw?.payment_id);
-                              toast.success('تم حذف السند');
-                              setSelectedPayment(null);
-                              queryClient.invalidateQueries(['customers-statement', id]);
-                            } catch (e) {
-                              toast.error('فشل حذف السند');
-                            }
-                          }}
-                        >
-                          حذف
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="grid gap-2">
-                      <div>
-                        <label className="mb-1 block text-sm font-medium text-text">المبلغ</label>
-                        <Input type="number" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-sm font-medium text-text">التاريخ</label>
-                        <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-sm font-medium text-text">البيان</label>
-                        <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
-                      </div>
-                      <div className="flex gap-2 pt-2">
-                        <Button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              const payload = {
-                                amount: Number(editAmount) || 0,
-                                transaction_date: editDate || undefined,
-                                description: editNotes || undefined,
-                              };
-                              await updatePayment(selectedPayment.id || selectedPayment.raw?.id || selectedPayment.raw?.payment_id, payload);
-                              toast.success('تم تعديل السند');
-                              setIsEditingPayment(false);
-                              setSelectedPayment(null);
-                              queryClient.invalidateQueries(['customers-statement', id]);
-                            } catch (e) {
-                              toast.error('فشل حفظ التعديلات');
-                            }
-                          }}
-                        >
-                          حفظ
-                        </Button>
-                        <Button type="button" variant="outline" onClick={() => setIsEditingPayment(false)}>
-                          إلغاء
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      onClick={async () => {
+                        const ok = window.confirm('هل متأكد من حذف سند التحصيل؟ لا يمكن التراجع');
+                        if (!ok) return;
+                        try {
+                          await deletePayment(selectedPayment.id || selectedPayment.raw?.id || selectedPayment.raw?.payment_id);
+                          toast.success('تم حذف السند');
+                          setSelectedPayment(null);
+                          queryClient.invalidateQueries(['customers-statement', id]);
+                        } catch (e) {
+                          toast.error('فشل حذف السند');
+                        }
+                      }}
+                    >
+                      حذف
+                    </Button>
+                  </div>
+                </>
               ) : (
-                <LoadingSpinner />
+                <div className="grid gap-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-text">المبلغ</label>
+                    <Input type="number" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-text">التاريخ</label>
+                    <Input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-text">البيان</label>
+                    <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const payload = {
+                            amount: Number(editAmount) || 0,
+                            transaction_date: editDate || undefined,
+                            description: editNotes || undefined,
+                          };
+                          await updatePayment(selectedPayment.id || selectedPayment.raw?.id || selectedPayment.raw?.payment_id, payload);
+                          toast.success('تم تعديل السند');
+                          setIsEditingPayment(false);
+                          setSelectedPayment(null);
+                          queryClient.invalidateQueries(['customers-statement', id]);
+                        } catch (e) {
+                          toast.error('فشل حفظ التعديلات');
+                        }
+                      }}
+                    >
+                      حفظ
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => setIsEditingPayment(false)}>
+                      إلغاء
+                    </Button>
+                  </div>
+                </div>
               )}
+            </div>
+          ) : (
+            <LoadingSpinner />
+          )}
         </DialogContent>
       </Dialog>
     </div>

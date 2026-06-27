@@ -204,16 +204,26 @@ export default function SupplierStatement() {
         runningBalance += debit - credit;
       }
 
+      const refType = String(item?.reference_type ?? item?.referenceType ?? '').toLowerCase();
+      const isPaymentRow =
+        refType.includes('payment') || refType.includes('receipt') || refType.includes('supplier_payment');
+
+      const date = isPaymentRow
+        ? item?.payment_date ?? item?.transaction_date ?? item?.date ?? null
+        : item?.invoice_date ?? item?.date ?? item?.transaction_date ?? null;
+
       return {
         id: item?.id ?? `row-${index}`,
-        date:
-          item?.invoice_date ?? item?.date ?? item?.transaction_date ?? null,
+        date,
         description: item?.description ?? item?.statement ?? item?.notes ?? '—',
         debit,
         credit,
         balance: runningBalance,
         referenceType: item?.reference_type ?? item?.referenceType ?? null,
         referenceId: toNumber(item?.reference_id ?? item?.referenceId, 0),
+        paymentNumber: item?.payment_number ?? item?.receipt_number ?? null,
+        invoiceNumber: item?.invoice_number ?? null,
+        isPaymentRow,
         raw: item,
       };
     });
@@ -252,7 +262,12 @@ export default function SupplierStatement() {
       render: (value, row) => {
         const type = String(row.referenceType || '').toLowerCase();
 
-        // If this row references an invoice, prefer the invoice's date.
+        // Payment rows: use the date already resolved from payment_date/transaction_date.
+        if (row.isPaymentRow) {
+          return value ? formatDate(value) : '—';
+        }
+
+        // Invoice rows: prefer the invoice's own date fetched separately.
         if (row.referenceId > 0 && isPurchaseInvoiceType(type)) {
           if (invoiceDateMap[row.referenceId]) return formatDate(invoiceDateMap[row.referenceId]);
           ensureInvoiceDate(row.referenceId);
@@ -260,6 +275,15 @@ export default function SupplierStatement() {
         }
 
         return value ? formatDate(value) : '—';
+      },
+    },
+    {
+      key: 'reference_number',
+      label: 'الرقم',
+      render: (_, row) => {
+        return row.isPaymentRow 
+          ? (row.paymentNumber || row.referenceId || '—')
+          : (row.invoiceNumber || row.referenceId || '—');
       },
     },
     {
@@ -469,6 +493,11 @@ export default function SupplierStatement() {
             {/* Transaction rows */}
             {statementRows.map((row) => {
               const dateVal = (() => {
+                // Payment rows: date already resolved from payment_date/transaction_date.
+                if (row.isPaymentRow) {
+                  return row.date ? formatDate(row.date) : '—';
+                }
+                // Invoice rows: prefer fetched invoice date.
                 if (row.referenceId > 0 && isPurchaseInvoiceType(String(row.referenceType || ''))) {
                   if (invoiceDateMap[row.referenceId]) return formatDate(invoiceDateMap[row.referenceId]);
                 }
@@ -479,7 +508,11 @@ export default function SupplierStatement() {
                 <tr key={row.id} className="indent-1">
                   <td>{getTypeLabel(row.referenceType)}</td>
                   <td>{dateVal}</td>
-                  <td className="col-num">{row.referenceId > 0 ? row.referenceId : ''}</td>
+                  <td className="col-num">
+                    {row.isPaymentRow 
+                      ? (row.paymentNumber || row.referenceId)
+                      : (row.invoiceNumber || row.referenceId || '')}
+                  </td>
                   <td className="col-debit">{formatNumber(row.debit)}</td>
                   <td className="col-credit">{formatNumber(row.credit)}</td>
                   <td className="col-balance">{formatNumber(row.balance)}</td>
